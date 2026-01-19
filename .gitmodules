@@ -1,0 +1,3 @@
+[submodule "simple-ai-agent"]
+	path = simple-ai-agent
+	url = https://github.com/Defiesta/simple-ai-agent
