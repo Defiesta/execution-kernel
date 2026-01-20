@@ -1,0 +1,13 @@
+[package]
+name = "kernel-guest"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kernel-core = { path = "../kernel-core" }
+agent-traits = { path = "../agent-traits" }
+constraints = { path = "../constraints" }
+
+[features]
+default = []
+risc0 = []
