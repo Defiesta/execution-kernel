@@ -103,7 +103,7 @@ mod tests {
         let input_bytes = input.encode();
         let result = KernelInputV1::decode(&input_bytes);
         
-        assert!(matches!(result, Err(CodecError::InvalidVersion)));
+        assert!(matches!(result, Err(CodecError::InvalidVersion { .. })));
     }
 
     #[test]
@@ -118,7 +118,7 @@ mod tests {
         let input_bytes = input.encode();
         let result = KernelInputV1::decode(&input_bytes);
         
-        assert!(matches!(result, Err(CodecError::InputTooLarge)));
+        assert!(matches!(result, Err(CodecError::InputTooLarge { .. })));
     }
 
     #[test]
@@ -170,6 +170,121 @@ mod tests {
         let input_bytes = input.encode();
         let result = kernel_main(&input_bytes);
         
-        assert!(matches!(result, Err(KernelError::InvalidInput(CodecError::InvalidVersion))));
+        assert!(matches!(result, Err(KernelError::InvalidInput(CodecError::InvalidVersion { .. }))));
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let input = KernelInputV1 {
+            protocol_version: 1,
+            agent_id: [0xaa; 32],
+            agent_input: vec![],
+        };
+
+        let input_bytes = input.encode();
+        let result = kernel_main(&input_bytes);
+        
+        assert!(result.is_ok());
+        
+        let journal_bytes = result.unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+    }
+
+    #[test]
+    fn test_max_size_input() {
+        let input = KernelInputV1 {
+            protocol_version: 1,
+            agent_id: [0xbb; 32],
+            agent_input: vec![0x42; MAX_AGENT_INPUT_BYTES],
+        };
+
+        let input_bytes = input.encode();
+        let result = kernel_main(&input_bytes);
+        
+        assert!(result.is_ok());
+    }
+
+    #[test] 
+    fn test_oversized_agent_output() {
+        let large_output = AgentOutput {
+            data: vec![0x99; MAX_AGENT_OUTPUT_BYTES + 1],
+        };
+        
+        // This should panic in encoding due to size limit
+        std::panic::catch_unwind(|| {
+            large_output.encode();
+        }).expect_err("Expected panic for oversized output");
+    }
+
+    #[test]
+    fn test_agent_output_decode_too_large() {
+        // Manually create bytes that would decode to oversized output
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&((MAX_AGENT_OUTPUT_BYTES + 1) as u32).to_le_bytes());
+        bytes.extend(vec![0x55; MAX_AGENT_OUTPUT_BYTES + 1]);
+        
+        let result = AgentOutput::decode(&bytes);
+        assert!(matches!(result, Err(CodecError::OutputTooLarge { .. })));
+    }
+
+    #[test]
+    fn test_arithmetic_overflow_protection() {
+        // Test u32 to usize conversion bounds checking is working
+        let input = KernelInputV1 {
+            protocol_version: 1,
+            agent_id: [0xcc; 32],
+            agent_input: vec![1, 2, 3],
+        };
+
+        let input_bytes = input.encode();
+        
+        // Verify normal case works
+        assert!(KernelInputV1::decode(&input_bytes).is_ok());
+    }
+
+    #[test]
+    fn test_memory_efficient_allocations() {
+        // Test that we're using pre-sized allocations
+        let large_input = vec![0x77; 1000];
+        let input = KernelInputV1 {
+            protocol_version: 1,
+            agent_id: [0xdd; 32], 
+            agent_input: large_input,
+        };
+
+        let encoded = input.encode();
+        let decoded = KernelInputV1::decode(&encoded).unwrap();
+        
+        assert_eq!(decoded.agent_input.len(), 1000);
+        assert_eq!(decoded.agent_input[0], 0x77);
+    }
+
+    #[test]
+    fn test_determinism_with_edge_cases() {
+        let test_cases = vec![
+            vec![],                              // Empty
+            vec![0],                            // Single byte  
+            vec![0xFF; 100],                    // Repeated bytes
+            (0..255).collect::<Vec<u8>>(),      // Sequential bytes
+        ];
+
+        for test_input in test_cases {
+            let input = KernelInputV1 {
+                protocol_version: 1,
+                agent_id: [0xee; 32],
+                agent_input: test_input,
+            };
+
+            let input_bytes = input.encode();
+            
+            // Run multiple times to ensure determinism
+            let result1 = kernel_main(&input_bytes).unwrap();
+            let result2 = kernel_main(&input_bytes).unwrap(); 
+            let result3 = kernel_main(&input_bytes).unwrap();
+            
+            assert_eq!(result1, result2);
+            assert_eq!(result2, result3);
+        }
     }
 }

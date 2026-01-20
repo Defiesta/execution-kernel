@@ -27,8 +27,10 @@ pub struct AgentOutput {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CodecError {
     InvalidLength,
-    InvalidVersion,
-    InputTooLarge,
+    InvalidVersion { expected: u32, actual: u32 },
+    InputTooLarge { size: u32, limit: usize },
+    OutputTooLarge { size: u32, limit: usize },
     UnexpectedEndOfInput,
-    InvalidExecutionStatus,
+    InvalidExecutionStatus(u8),
+    ArithmeticOverflow,
 }

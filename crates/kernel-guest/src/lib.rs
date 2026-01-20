@@ -16,7 +16,8 @@ pub enum KernelError {
 impl From<CodecError> for KernelError {
     fn from(error: CodecError) -> Self {
         match error {
-            CodecError::InputTooLarge => KernelError::InputTooLarge(MAX_AGENT_INPUT_BYTES),
+            CodecError::InputTooLarge { size, .. } => KernelError::InputTooLarge(size as usize),
+            CodecError::OutputTooLarge { .. } => KernelError::InvalidAgentOutput,
             other => KernelError::InvalidInput(other),
         }
     }
