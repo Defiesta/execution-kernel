@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kernel-core",
+    "crates/kernel-guest", 
+    "crates/agent-traits",
+    "crates/constraints",
+    "crates/host-tests",
+]
+
+[workspace.dependencies]
+sha2 = "0.10"
+
+[profile.release]
+debug = 1
+lto = true
+
+[profile.dev]
+opt-level = 1
