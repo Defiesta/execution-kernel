@@ -8,8 +8,8 @@ fn main() {
         Ok(journal_bytes) => {
             env::commit(&journal_bytes);
         }
-        Err(_) => {
-            panic!("Kernel execution failed");
+        Err(error) => {
+            panic!("Kernel execution failed: {:?}", error);
         }
     }
 }

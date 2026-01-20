@@ -156,4 +156,20 @@ mod tests {
         
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn test_unsupported_protocol_version_error() {
+        use kernel_guest::{kernel_main, KernelError};
+        
+        let input = KernelInputV1 {
+            protocol_version: 999,
+            agent_id: [0x12; 32], 
+            agent_input: vec![1, 2, 3],
+        };
+
+        let input_bytes = input.encode();
+        let result = kernel_main(&input_bytes);
+        
+        assert!(matches!(result, Err(KernelError::InvalidInput(CodecError::InvalidVersion))));
+    }
 }

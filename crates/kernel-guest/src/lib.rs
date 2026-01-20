@@ -4,16 +4,21 @@ use constraints::{check, Meta};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum KernelError {
-    CodecError(CodecError),
-    InvalidProtocolVersion,
-    InvalidKernelVersion,
+    InvalidInput(CodecError),
+    UnsupportedProtocolVersion(u32),
+    UnsupportedKernelVersion(u32),
+    InputTooLarge(usize),
     AgentExecutionFailed,
     ConstraintViolation,
+    InvalidAgentOutput,
 }
 
 impl From<CodecError> for KernelError {
     fn from(error: CodecError) -> Self {
-        KernelError::CodecError(error)
+        match error {
+            CodecError::InputTooLarge => KernelError::InputTooLarge(MAX_AGENT_INPUT_BYTES),
+            other => KernelError::InvalidInput(other),
+        }
     }
 }
 
@@ -21,13 +26,14 @@ pub fn kernel_main(input_bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
     let input = KernelInputV1::decode(input_bytes)?;
     
     if input.protocol_version != PROTOCOL_VERSION {
-        return Err(KernelError::InvalidProtocolVersion);
+        return Err(KernelError::UnsupportedProtocolVersion(input.protocol_version));
     }
     
     let input_commitment = compute_input_commitment(input_bytes);
     
-    let agent_output = TrivialAgent::run([0u8; 32], &input.agent_input)
+    let agent_output = TrivialAgent::run(input.agent_id, &input.agent_input)
         .map_err(|_| KernelError::AgentExecutionFailed)?;
+    
     
     let meta = Meta {
         agent_id: input.agent_id,
