@@ -79,8 +79,9 @@ pub fn kernel_main(input_bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
     check(&agent_output, &constraint_meta)
         .map_err(KernelError::ConstraintViolation)?;
 
-    // 9. Compute action commitment
-    let agent_output_bytes = agent_output.encode();
+    // 9. Compute action commitment (encode() automatically canonicalizes)
+    let agent_output_bytes = agent_output.encode()
+        .map_err(KernelError::EncodingFailed)?;
     let action_commitment = compute_action_commitment(&agent_output_bytes);
 
     // 10. Construct journal with all identity and commitment fields
@@ -97,5 +98,5 @@ pub fn kernel_main(input_bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
         execution_status: ExecutionStatus::Success,
     };
 
-    Ok(journal.encode())
+    journal.encode().map_err(KernelError::EncodingFailed)
 }

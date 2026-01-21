@@ -2,7 +2,7 @@ use crate::types::*;
 use crate::{MAX_AGENT_INPUT_BYTES, PROTOCOL_VERSION, KERNEL_VERSION};
 
 pub trait CanonicalEncode {
-    fn encode(&self) -> Vec<u8>;
+    fn encode(&self) -> Result<Vec<u8>, CodecError>;
 }
 
 pub trait CanonicalDecode: Sized {
@@ -23,10 +23,16 @@ pub trait CanonicalDecode: Sized {
 /// Fixed header: 144 bytes + 4 byte length prefix + variable input data
 /// Minimum size with empty input: 148 bytes
 impl CanonicalEncode for KernelInputV1 {
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> Result<Vec<u8>, CodecError> {
         let data_len = self.opaque_agent_inputs.len();
+        if data_len > MAX_AGENT_INPUT_BYTES {
+            return Err(CodecError::InputTooLarge {
+                size: data_len.min(u32::MAX as usize) as u32,
+                limit: MAX_AGENT_INPUT_BYTES,
+            });
+        }
         if data_len > u32::MAX as usize {
-            panic!("Input data too large for u32 length prefix");
+            return Err(CodecError::ArithmeticOverflow);
         }
 
         // Fixed fields (144) + length prefix (4) + data
@@ -43,7 +49,7 @@ impl CanonicalEncode for KernelInputV1 {
         buf.extend_from_slice(&(data_len as u32).to_le_bytes());
         buf.extend_from_slice(&self.opaque_agent_inputs);
 
-        buf
+        Ok(buf)
     }
 }
 
@@ -175,7 +181,7 @@ impl CanonicalDecode for KernelInputV1 {
 const JOURNAL_SIZE: usize = 209;
 
 impl CanonicalEncode for KernelJournalV1 {
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> Result<Vec<u8>, CodecError> {
         let mut buf = Vec::with_capacity(JOURNAL_SIZE);
 
         buf.extend_from_slice(&self.protocol_version.to_le_bytes());
@@ -188,13 +194,13 @@ impl CanonicalEncode for KernelJournalV1 {
         buf.extend_from_slice(&self.input_commitment);
         buf.extend_from_slice(&self.action_commitment);
 
-        // ExecutionStatus encoding: Success = 0x00
+        // ExecutionStatus encoding: Success = 0x01 (0x00 reserved to catch uninitialized memory)
         buf.push(match self.execution_status {
-            ExecutionStatus::Success => 0x00,
+            ExecutionStatus::Success => 0x01,
         });
 
         debug_assert_eq!(buf.len(), JOURNAL_SIZE);
-        buf
+        Ok(buf)
     }
 }
 
@@ -213,12 +219,28 @@ impl CanonicalDecode for KernelJournalV1 {
         );
         offset += 4;
 
+        // Validate protocol version for upgrade safety
+        if protocol_version != PROTOCOL_VERSION {
+            return Err(CodecError::InvalidVersion {
+                expected: PROTOCOL_VERSION,
+                actual: protocol_version,
+            });
+        }
+
         let kernel_version = u32::from_le_bytes(
             bytes[offset..offset + 4]
                 .try_into()
                 .map_err(|_| CodecError::UnexpectedEndOfInput)?
         );
         offset += 4;
+
+        // Validate kernel version for upgrade safety
+        if kernel_version != KERNEL_VERSION {
+            return Err(CodecError::InvalidVersion {
+                expected: KERNEL_VERSION,
+                actual: kernel_version,
+            });
+        }
 
         let agent_id: [u8; 32] = bytes[offset..offset + 32]
             .try_into()
@@ -257,11 +279,13 @@ impl CanonicalDecode for KernelJournalV1 {
             .map_err(|_| CodecError::UnexpectedEndOfInput)?;
         offset += 32;
 
-        // ExecutionStatus decoding: 0x00 = Success, anything else is invalid
+        // ExecutionStatus decoding: 0x01 = Success, 0x00 and anything else is invalid
         let execution_status = match bytes[offset] {
-            0x00 => ExecutionStatus::Success,
+            0x01 => ExecutionStatus::Success,
             status => return Err(CodecError::InvalidExecutionStatus(status)),
         };
+        offset += 1;
+        debug_assert_eq!(offset, JOURNAL_SIZE);
 
         Ok(KernelJournalV1 {
             protocol_version,
@@ -286,13 +310,16 @@ impl CanonicalDecode for KernelJournalV1 {
 ///
 /// Fixed header: 40 bytes + variable payload
 impl CanonicalEncode for ActionV1 {
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> Result<Vec<u8>, CodecError> {
         let payload_len = self.payload.len();
         if payload_len > MAX_ACTION_PAYLOAD_BYTES {
-            panic!("Action payload exceeds maximum size");
+            return Err(CodecError::ActionPayloadTooLarge {
+                size: payload_len as u32,
+                limit: MAX_ACTION_PAYLOAD_BYTES,
+            });
         }
         if payload_len > u32::MAX as usize {
-            panic!("Payload too large for u32 length prefix");
+            return Err(CodecError::ArithmeticOverflow);
         }
 
         let total_len = 4 + 32 + 4 + payload_len;
@@ -303,7 +330,7 @@ impl CanonicalEncode for ActionV1 {
         buf.extend_from_slice(&(payload_len as u32).to_le_bytes());
         buf.extend_from_slice(&self.payload);
 
-        buf
+        Ok(buf)
     }
 }
 
@@ -365,31 +392,42 @@ impl CanonicalDecode for ActionV1 {
 
 /// AgentOutput encoding layout (little-endian):
 /// - action_count: u32 (4 bytes)
-/// - actions: [ActionV1; count] (variable, each action is variable-length)
+/// - for each action:
+///   - action_len: u32 (4 bytes) - length of the following action encoding
+///   - action: ActionV1 encoding (variable)
 ///
-/// Actions are encoded sequentially without additional framing.
+/// IMPORTANT: Actions are automatically sorted into canonical order before encoding.
+/// This ensures deterministic action_commitment regardless of the order agents produce actions.
+/// Ordering: action_type (ascending) → target (lexicographic) → payload (lexicographic)
 impl CanonicalEncode for AgentOutput {
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> Result<Vec<u8>, CodecError> {
         let action_count = self.actions.len();
         if action_count > MAX_ACTIONS_PER_OUTPUT {
-            panic!("Too many actions in output");
+            return Err(CodecError::TooManyActions {
+                count: action_count as u32,
+                limit: MAX_ACTIONS_PER_OUTPUT,
+            });
         }
         if action_count > u32::MAX as usize {
-            panic!("Action count too large for u32");
+            return Err(CodecError::ArithmeticOverflow);
         }
+
+        // Sort actions into canonical order for deterministic encoding
+        let mut sorted_actions = self.actions.clone();
+        sorted_actions.sort();
 
         // Estimate capacity: 4 bytes for count + ~100 bytes per action average
         let mut buf = Vec::with_capacity(4 + action_count * 100);
 
         buf.extend_from_slice(&(action_count as u32).to_le_bytes());
 
-        for action in &self.actions {
-            let action_bytes = action.encode();
+        for action in &sorted_actions {
+            let action_bytes = action.encode()?;
             buf.extend_from_slice(&(action_bytes.len() as u32).to_le_bytes());
             buf.extend_from_slice(&action_bytes);
         }
 
-        buf
+        Ok(buf)
     }
 }
 
@@ -430,6 +468,15 @@ impl CanonicalDecode for AgentOutput {
                     .try_into()
                     .map_err(|_| CodecError::UnexpectedEndOfInput)?
             );
+
+            // Reject absurdly large action lengths before attempting allocation
+            if action_len_u32 > MAX_SINGLE_ACTION_BYTES as u32 {
+                return Err(CodecError::ActionTooLarge {
+                    size: action_len_u32,
+                    limit: MAX_SINGLE_ACTION_BYTES,
+                });
+            }
+
             let action_len = action_len_u32 as usize;
             offset += 4;
 

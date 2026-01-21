@@ -21,7 +21,7 @@ mod tests {
     fn test_kernel_input_encoding_round_trip() {
         let original = make_input(vec![1, 2, 3, 4, 5]);
 
-        let encoded = original.encode();
+        let encoded = original.encode().unwrap();
         let decoded = KernelInputV1::decode(&encoded).unwrap();
 
         assert_eq!(original, decoded);
@@ -42,7 +42,7 @@ mod tests {
             execution_status: ExecutionStatus::Success,
         };
 
-        let encoded = original.encode();
+        let encoded = original.encode().unwrap();
         let decoded = KernelJournalV1::decode(&encoded).unwrap();
 
         assert_eq!(original, decoded);
@@ -56,7 +56,7 @@ mod tests {
             payload: vec![10, 20, 30, 40],
         };
 
-        let encoded = original.encode();
+        let encoded = original.encode().unwrap();
         let decoded = ActionV1::decode(&encoded).unwrap();
 
         assert_eq!(original, decoded);
@@ -79,7 +79,7 @@ mod tests {
             ],
         };
 
-        let encoded = original.encode();
+        let encoded = original.encode().unwrap();
         let decoded = AgentOutput::decode(&encoded).unwrap();
 
         assert_eq!(original, decoded);
@@ -89,11 +89,57 @@ mod tests {
     fn test_empty_agent_output_encoding() {
         let original = AgentOutput { actions: vec![] };
 
-        let encoded = original.encode();
+        let encoded = original.encode().unwrap();
         let decoded = AgentOutput::decode(&encoded).unwrap();
 
         assert_eq!(original, decoded);
         assert_eq!(encoded.len(), 4); // Just the count field
+    }
+
+    #[test]
+    fn test_action_canonicalization() {
+        // Create actions in non-canonical order
+        let actions_unordered = vec![
+            ActionV1 {
+                action_type: 2,  // Higher type
+                target: [0x11; 32],
+                payload: vec![1],
+            },
+            ActionV1 {
+                action_type: 1,  // Lower type - should sort first
+                target: [0x22; 32],
+                payload: vec![2],
+            },
+            ActionV1 {
+                action_type: 1,  // Same type, different target
+                target: [0x11; 32],  // Lower target - should sort before [0x22]
+                payload: vec![3],
+            },
+        ];
+
+        let output1 = AgentOutput { actions: actions_unordered.clone() };
+        let canonical1 = output1.into_canonical();
+
+        // Verify ordering: action_type ascending, then target lexicographic
+        assert_eq!(canonical1.actions[0].action_type, 1);
+        assert_eq!(canonical1.actions[0].target, [0x11; 32]);
+        assert_eq!(canonical1.actions[0].payload, vec![3]);
+
+        assert_eq!(canonical1.actions[1].action_type, 1);
+        assert_eq!(canonical1.actions[1].target, [0x22; 32]);
+        assert_eq!(canonical1.actions[1].payload, vec![2]);
+
+        assert_eq!(canonical1.actions[2].action_type, 2);
+        assert_eq!(canonical1.actions[2].target, [0x11; 32]);
+        assert_eq!(canonical1.actions[2].payload, vec![1]);
+
+        // Different initial order should produce same canonical output
+        let actions_reversed: Vec<ActionV1> = actions_unordered.iter().rev().cloned().collect();
+        let output2 = AgentOutput { actions: actions_reversed };
+        let canonical2 = output2.into_canonical();
+
+        // Encoding should be identical regardless of initial order
+        assert_eq!(canonical1.encode().unwrap(), canonical2.encode().unwrap());
     }
 
     #[test]
@@ -117,7 +163,7 @@ mod tests {
     fn test_action_commitment_golden_vector() {
         // Empty actions list encodes to [0, 0, 0, 0] (count = 0)
         let agent_output = AgentOutput { actions: vec![] };
-        let output_bytes = agent_output.encode();
+        let output_bytes = agent_output.encode().unwrap();
         let commitment = compute_action_commitment(&output_bytes);
 
         // SHA256([0, 0, 0, 0]) - empty action list
@@ -134,7 +180,7 @@ mod tests {
     #[test]
     fn test_determinism() {
         let input = make_input(vec![100, 200]);
-        let input_bytes = input.encode();
+        let input_bytes = input.encode().unwrap();
 
         let result1 = kernel_main(&input_bytes).unwrap();
         let result2 = kernel_main(&input_bytes).unwrap();
@@ -147,7 +193,7 @@ mod tests {
         let mut input = make_input(vec![1, 2, 3]);
         input.protocol_version = 999;
 
-        let input_bytes = input.encode();
+        let input_bytes = input.encode().unwrap();
         let result = KernelInputV1::decode(&input_bytes);
 
         assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
@@ -158,9 +204,55 @@ mod tests {
         let mut input = make_input(vec![1, 2, 3]);
         input.kernel_version = 999;
 
-        let input_bytes = input.encode();
+        let input_bytes = input.encode().unwrap();
         let result = KernelInputV1::decode(&input_bytes);
 
+        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+    }
+
+    #[test]
+    fn test_journal_invalid_protocol_version() {
+        let journal = KernelJournalV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0; 32],
+            agent_code_hash: [0; 32],
+            constraint_set_hash: [0; 32],
+            input_root: [0; 32],
+            execution_nonce: 0,
+            input_commitment: [0; 32],
+            action_commitment: [0; 32],
+            execution_status: ExecutionStatus::Success,
+        };
+
+        let mut encoded = journal.encode().unwrap();
+        // Corrupt protocol version to 999 (little-endian)
+        encoded[0..4].copy_from_slice(&999u32.to_le_bytes());
+
+        let result = KernelJournalV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+    }
+
+    #[test]
+    fn test_journal_invalid_kernel_version() {
+        let journal = KernelJournalV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0; 32],
+            agent_code_hash: [0; 32],
+            constraint_set_hash: [0; 32],
+            input_root: [0; 32],
+            execution_nonce: 0,
+            input_commitment: [0; 32],
+            action_commitment: [0; 32],
+            execution_status: ExecutionStatus::Success,
+        };
+
+        let mut encoded = journal.encode().unwrap();
+        // Corrupt kernel version to 999 (at offset 4, little-endian)
+        encoded[4..8].copy_from_slice(&999u32.to_le_bytes());
+
+        let result = KernelJournalV1::decode(&encoded);
         assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
     }
 
@@ -169,9 +261,8 @@ mod tests {
         let large_input = vec![0u8; MAX_AGENT_INPUT_BYTES + 1];
         let input = make_input(large_input);
 
-        let input_bytes = input.encode();
-        let result = KernelInputV1::decode(&input_bytes);
-
+        // Encode-side now catches oversized inputs
+        let result = input.encode();
         assert!(matches!(result, Err(CodecError::InputTooLarge { .. })));
     }
 
@@ -198,7 +289,7 @@ mod tests {
             execution_status: ExecutionStatus::Success,
         };
 
-        let encoded = journal.encode();
+        let encoded = journal.encode().unwrap();
         // protocol_version: 4 + kernel_version: 4 + agent_id: 32 +
         // agent_code_hash: 32 + constraint_set_hash: 32 + input_root: 32 +
         // execution_nonce: 8 + input_commitment: 32 + action_commitment: 32 +
@@ -209,7 +300,7 @@ mod tests {
     #[test]
     fn test_constraints_enforcement() {
         let input = make_input(vec![1, 2, 3]);
-        let input_bytes = input.encode();
+        let input_bytes = input.encode().unwrap();
         let result = kernel_main(&input_bytes);
 
         assert!(result.is_ok());
@@ -218,7 +309,7 @@ mod tests {
     #[test]
     fn test_empty_input() {
         let input = make_input(vec![]);
-        let input_bytes = input.encode();
+        let input_bytes = input.encode().unwrap();
         let result = kernel_main(&input_bytes);
 
         assert!(result.is_ok());
@@ -231,7 +322,7 @@ mod tests {
     #[test]
     fn test_max_size_input() {
         let input = make_input(vec![0x42; MAX_AGENT_INPUT_BYTES]);
-        let input_bytes = input.encode();
+        let input_bytes = input.encode().unwrap();
         let result = kernel_main(&input_bytes);
 
         assert!(result.is_ok());
@@ -250,7 +341,7 @@ mod tests {
             opaque_agent_inputs: vec![1, 2, 3],
         };
 
-        let input_bytes = input.encode();
+        let input_bytes = input.encode().unwrap();
         let journal_bytes = kernel_main(&input_bytes).unwrap();
         let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
 
@@ -289,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_execution_status_encoding() {
-        // Success encodes as 0x00
+        // Success encodes as 0x01 (0x00 reserved to catch uninitialized memory)
         let journal = KernelJournalV1 {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
@@ -303,9 +394,9 @@ mod tests {
             execution_status: ExecutionStatus::Success,
         };
 
-        let encoded = journal.encode();
-        // Last byte should be 0x00 for Success
-        assert_eq!(*encoded.last().unwrap(), 0x00);
+        let encoded = journal.encode().unwrap();
+        // Last byte should be 0x01 for Success
+        assert_eq!(*encoded.last().unwrap(), 0x01);
     }
 
     #[test]
@@ -323,12 +414,17 @@ mod tests {
             execution_status: ExecutionStatus::Success,
         };
 
-        let mut encoded = journal.encode();
+        let mut encoded = journal.encode().unwrap();
         // Corrupt the status byte to an invalid value
         *encoded.last_mut().unwrap() = 0xFF;
 
         let result = KernelJournalV1::decode(&encoded);
         assert!(matches!(result, Err(CodecError::InvalidExecutionStatus(0xFF))));
+
+        // Also verify that 0x00 is invalid (reserved to catch uninitialized memory)
+        *encoded.last_mut().unwrap() = 0x00;
+        let result = KernelJournalV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidExecutionStatus(0x00))));
     }
 
     #[test]
@@ -342,7 +438,7 @@ mod tests {
 
         for test_input in test_cases {
             let input = make_input(test_input);
-            let input_bytes = input.encode();
+            let input_bytes = input.encode().unwrap();
 
             // Run multiple times to ensure determinism
             let result1 = kernel_main(&input_bytes).unwrap();
@@ -372,8 +468,8 @@ mod tests {
             ..input1.clone()
         };
 
-        let journal1 = KernelJournalV1::decode(&kernel_main(&input1.encode()).unwrap()).unwrap();
-        let journal2 = KernelJournalV1::decode(&kernel_main(&input2.encode()).unwrap()).unwrap();
+        let journal1 = KernelJournalV1::decode(&kernel_main(&input1.encode().unwrap()).unwrap()).unwrap();
+        let journal2 = KernelJournalV1::decode(&kernel_main(&input2.encode().unwrap()).unwrap()).unwrap();
 
         assert_eq!(journal1.execution_nonce, 1);
         assert_eq!(journal2.execution_nonce, 2);
@@ -386,7 +482,7 @@ mod tests {
     fn test_input_header_size() {
         // Verify minimum input size with empty data
         let input = make_input(vec![]);
-        let encoded = input.encode();
+        let encoded = input.encode().unwrap();
 
         // Fixed fields (144) + length prefix (4) + 0 bytes data = 148
         assert_eq!(encoded.len(), 148);

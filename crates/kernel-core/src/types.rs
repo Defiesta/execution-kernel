@@ -34,7 +34,7 @@ pub struct KernelInputV1 {
 /// - Replay protection (execution_nonce) for ordering/dedup
 /// - Cryptographic commitments for input/output verification
 ///
-/// Journal size: 169 bytes fixed (4+4+32+32+32+32+8+32+32+1)
+/// Journal size: 209 bytes fixed (4+4+32+32+32+32+8+32+32+1)
 #[derive(Clone, Debug, PartialEq)]
 pub struct KernelJournalV1 {
     /// Protocol version for wire format compatibility
@@ -61,14 +61,15 @@ pub struct KernelJournalV1 {
 
 /// Execution status enum.
 ///
-/// Encoding: Success = 0x00
+/// Encoding: Success = 0x01
+/// 0x00 is reserved/invalid (prevents uninitialized memory from being interpreted as success).
 /// Any other value is invalid and must be rejected on decode.
 ///
 /// For P0.1, only Success is defined. Failure cases abort before
 /// journal commit, so no failure status is needed in the journal.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExecutionStatus {
-    /// Execution completed successfully. Encoded as 0x00.
+    /// Execution completed successfully. Encoded as 0x01.
     Success,
 }
 
@@ -80,9 +81,15 @@ pub enum ExecutionStatus {
 /// - payload: Variable-length action data (max 16KB per action)
 ///
 /// Actions are ordered and the ordering is consensus-critical.
-/// The kernel enforces deterministic ordering by requiring agents
-/// to produce actions in their canonical order.
-#[derive(Clone, Debug, PartialEq)]
+/// The kernel enforces deterministic ordering by sorting actions
+/// before commitment using lexicographic comparison:
+///   1. action_type (ascending)
+///   2. target (lexicographic)
+///   3. payload (lexicographic)
+///
+/// This kernel-side canonicalization ensures determinism regardless
+/// of the order in which agents produce actions.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ActionV1 {
     /// 4-byte action type identifier
     pub action_type: u32,
@@ -98,14 +105,64 @@ pub const MAX_ACTION_PAYLOAD_BYTES: usize = 16_384;
 /// Maximum number of actions per output
 pub const MAX_ACTIONS_PER_OUTPUT: usize = 64;
 
+/// Maximum encoded size of a single ActionV1.
+/// Computed as: action_type (4) + target (32) + payload_len (4) + MAX_ACTION_PAYLOAD_BYTES
+/// = 40 + 16384 = 16424 bytes
+pub const MAX_SINGLE_ACTION_BYTES: usize = 40 + MAX_ACTION_PAYLOAD_BYTES;
+
 /// Structured agent output containing ordered actions.
 ///
-/// Actions must be in canonical order as produced by the agent.
-/// The action_commitment is computed over the encoded AgentOutput.
+/// Actions are sorted into canonical order by the kernel before
+/// commitment computation (see ActionV1 for ordering rules).
+/// The action_commitment is computed over the encoded AgentOutput
+/// after canonicalization.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AgentOutput {
     /// Ordered list of actions (max 64 actions)
     pub actions: Vec<ActionV1>,
+}
+
+// Manual Ord implementation for ActionV1 to ensure deterministic ordering.
+// Ordering: action_type (ascending) → target (lexicographic) → payload (lexicographic)
+impl Ord for ActionV1 {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        match self.action_type.cmp(&other.action_type) {
+            core::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+        match self.target.cmp(&other.target) {
+            core::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+        self.payload.cmp(&other.payload)
+    }
+}
+
+impl PartialOrd for ActionV1 {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl AgentOutput {
+    /// Canonicalize actions by sorting them into deterministic order.
+    ///
+    /// NOTE: The `encode()` method automatically canonicalizes actions,
+    /// so calling this explicitly is only needed if you want to inspect
+    /// the canonical order without encoding.
+    pub fn canonicalize(&mut self) {
+        self.actions.sort();
+    }
+
+    /// Return a new AgentOutput with canonicalized action order.
+    ///
+    /// NOTE: The `encode()` method automatically canonicalizes actions,
+    /// so calling this explicitly is only needed if you want to inspect
+    /// the canonical order without encoding.
+    pub fn into_canonical(mut self) -> Self {
+        self.canonicalize();
+        self
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -119,6 +176,7 @@ pub enum CodecError {
     ArithmeticOverflow,
     TooManyActions { count: u32, limit: usize },
     ActionPayloadTooLarge { size: u32, limit: usize },
+    ActionTooLarge { size: u32, limit: usize },
 }
 
 /// Kernel-level execution errors.
@@ -142,6 +200,8 @@ pub enum KernelError {
     InvalidAgentId,
     /// Agent code hash mismatch
     AgentCodeHashMismatch,
+    /// Output encoding failed
+    EncodingFailed(CodecError),
 }
 
 /// Agent execution errors
