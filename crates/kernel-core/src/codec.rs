@@ -1,5 +1,137 @@
+// Canonical binary codec for P0.1 kernel protocol.
+// See spec/codec.md for encoding specification.
+
 use crate::types::*;
 use crate::{MAX_AGENT_INPUT_BYTES, PROTOCOL_VERSION, KERNEL_VERSION};
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Encode a u32 as little-endian bytes and append to buffer.
+#[inline]
+pub fn put_u32_le(buf: &mut Vec<u8>, value: u32) {
+    buf.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Encode a u64 as little-endian bytes and append to buffer.
+#[inline]
+pub fn put_u64_le(buf: &mut Vec<u8>, value: u64) {
+    buf.extend_from_slice(&value.to_le_bytes());
+}
+
+/// Append a 32-byte array to buffer.
+#[inline]
+pub fn put_bytes32(buf: &mut Vec<u8>, bytes: &[u8; 32]) {
+    buf.extend_from_slice(bytes);
+}
+
+/// Encode variable-length bytes with u32 length prefix.
+/// Returns error if data exceeds max_len.
+#[inline]
+pub fn put_var_bytes(buf: &mut Vec<u8>, data: &[u8], max_len: usize) -> Result<(), CodecError> {
+    let len = data.len();
+    if len > max_len {
+        return Err(CodecError::InputTooLarge {
+            size: len.min(u32::MAX as usize) as u32,
+            limit: max_len,
+        });
+    }
+    if len > u32::MAX as usize {
+        return Err(CodecError::ArithmeticOverflow);
+    }
+    buf.extend_from_slice(&(len as u32).to_le_bytes());
+    buf.extend_from_slice(data);
+    Ok(())
+}
+
+/// Decode a u32 from little-endian bytes at offset.
+/// Advances offset by 4 on success.
+#[inline]
+pub fn get_u32_le(bytes: &[u8], offset: &mut usize) -> Result<u32, CodecError> {
+    if bytes.len() < *offset + 4 {
+        return Err(CodecError::UnexpectedEndOfInput);
+    }
+    let value = u32::from_le_bytes(
+        bytes[*offset..*offset + 4]
+            .try_into()
+            .map_err(|_| CodecError::UnexpectedEndOfInput)?
+    );
+    *offset += 4;
+    Ok(value)
+}
+
+/// Decode a u64 from little-endian bytes at offset.
+/// Advances offset by 8 on success.
+#[inline]
+pub fn get_u64_le(bytes: &[u8], offset: &mut usize) -> Result<u64, CodecError> {
+    if bytes.len() < *offset + 8 {
+        return Err(CodecError::UnexpectedEndOfInput);
+    }
+    let value = u64::from_le_bytes(
+        bytes[*offset..*offset + 8]
+            .try_into()
+            .map_err(|_| CodecError::UnexpectedEndOfInput)?
+    );
+    *offset += 8;
+    Ok(value)
+}
+
+/// Decode a 32-byte array at offset.
+/// Advances offset by 32 on success.
+#[inline]
+pub fn get_bytes32(bytes: &[u8], offset: &mut usize) -> Result<[u8; 32], CodecError> {
+    if bytes.len() < *offset + 32 {
+        return Err(CodecError::UnexpectedEndOfInput);
+    }
+    let value: [u8; 32] = bytes[*offset..*offset + 32]
+        .try_into()
+        .map_err(|_| CodecError::UnexpectedEndOfInput)?;
+    *offset += 32;
+    Ok(value)
+}
+
+/// Decode variable-length bytes with u32 length prefix.
+/// Advances offset by 4 + length on success.
+/// Returns error if length exceeds max_len.
+#[inline]
+pub fn get_var_bytes(bytes: &[u8], offset: &mut usize, max_len: usize) -> Result<Vec<u8>, CodecError> {
+    let len_u32 = get_u32_le(bytes, offset)?;
+    // Rewind offset since get_u32_le advanced it, but we need to check bounds
+    *offset -= 4;
+
+    if len_u32 > max_len as u32 {
+        return Err(CodecError::InputTooLarge {
+            size: len_u32,
+            limit: max_len,
+        });
+    }
+
+    let len = len_u32 as usize;
+    *offset += 4; // Re-advance past length
+
+    if bytes.len() < *offset + len {
+        return Err(CodecError::UnexpectedEndOfInput);
+    }
+
+    let data = bytes[*offset..*offset + len].to_vec();
+    *offset += len;
+    Ok(data)
+}
+
+/// Ensure there are no trailing bytes after decoding.
+/// Returns error if offset does not equal total length.
+#[inline]
+pub fn ensure_no_trailing_bytes(bytes: &[u8], offset: usize) -> Result<(), CodecError> {
+    if offset != bytes.len() {
+        return Err(CodecError::InvalidLength);
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Traits
+// ============================================================================
 
 pub trait CanonicalEncode {
     fn encode(&self) -> Result<Vec<u8>, CodecError>;
