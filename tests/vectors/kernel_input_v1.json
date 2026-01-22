@@ -1,0 +1,64 @@
+{
+  "description": "Test vectors for KernelInputV1 canonical encoding",
+  "encoding_version": 1,
+  "vectors": [
+    {
+      "name": "minimal_zeros",
+      "description": "Minimal valid input with all zeros and empty agent input",
+      "fields": {
+        "protocol_version": 1,
+        "kernel_version": 1,
+        "agent_id": "0000000000000000000000000000000000000000000000000000000000000000",
+        "agent_code_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "constraint_set_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "input_root": "0000000000000000000000000000000000000000000000000000000000000000",
+        "execution_nonce": 0,
+        "opaque_agent_inputs": ""
+      },
+      "encoded_hex": "01000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "commitment_hex": "f0b4a449964d5ff3e473605e3ed1af1223f60135392d8add3244d2926ab9ab3f"
+    },
+    {
+      "name": "standard_case",
+      "description": "Standard case with typical field values",
+      "fields": {
+        "protocol_version": 1,
+        "kernel_version": 1,
+        "agent_id": "4242424242424242424242424242424242424242424242424242424242424242",
+        "agent_code_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "constraint_set_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "input_root": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "execution_nonce": 12345,
+        "opaque_agent_inputs": "0102030405"
+      },
+      "encoded_hex": "01000000010000004242424242424242424242424242424242424242424242424242424242424242aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc3930000000000000050000000102030405",
+      "commitment_hex": "6e4a2cce578937164ab4c0016a678b8e9d24a729c7c418b793b447fd299ff6a4"
+    }
+  ],
+  "negative_vectors": [
+    {
+      "name": "truncated",
+      "description": "Input truncated to only 2 bytes",
+      "encoded_hex": "0102",
+      "expected_error": "UnexpectedEndOfInput"
+    },
+    {
+      "name": "trailing_bytes",
+      "description": "Valid encoding with extra trailing byte 0xff",
+      "encoded_hex": "01000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff",
+      "expected_error": "InvalidLength"
+    },
+    {
+      "name": "wrong_protocol_version",
+      "description": "Protocol version set to 999 instead of 1",
+      "encoded_hex": "e7030000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "expected_error": "InvalidVersion"
+    },
+    {
+      "name": "empty_input",
+      "description": "Zero bytes - cannot decode anything",
+      "encoded_hex": "",
+      "expected_error": "UnexpectedEndOfInput"
+    }
+  ]
+}

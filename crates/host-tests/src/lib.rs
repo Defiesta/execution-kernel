@@ -1,6 +1,11 @@
 #[cfg(test)]
 mod tests {
     use kernel_core::*;
+    use kernel_core::codec::{
+        put_u32_le, put_u64_le, put_bytes32,
+        get_u32_le, get_u64_le, get_bytes32,
+        ensure_no_trailing_bytes,
+    };
     use kernel_guest::kernel_main;
 
     /// Helper to create a valid KernelInputV1 with default values
@@ -486,5 +491,383 @@ mod tests {
 
         // Fixed fields (144) + length prefix (4) + 0 bytes data = 148
         assert_eq!(encoded.len(), 148);
+    }
+
+    // ========================================================================
+    // P0.2: Trailing Bytes Rejection Tests
+    // ========================================================================
+
+    #[test]
+    fn test_trailing_bytes_rejected_input() {
+        // Create a valid KernelInputV1 encoding
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0u8; 32],
+            agent_code_hash: [0u8; 32],
+            constraint_set_hash: [0u8; 32],
+            input_root: [0u8; 32],
+            execution_nonce: 0,
+            opaque_agent_inputs: vec![],
+        };
+        let mut encoded = input.encode().unwrap();
+
+        // Append trailing byte
+        encoded.push(0xFF);
+
+        // Decode should fail with InvalidLength
+        let result = KernelInputV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+    }
+
+    #[test]
+    fn test_trailing_bytes_rejected_journal() {
+        // Create a valid KernelJournalV1 encoding
+        let journal = KernelJournalV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0u8; 32],
+            agent_code_hash: [0u8; 32],
+            constraint_set_hash: [0u8; 32],
+            input_root: [0u8; 32],
+            execution_nonce: 0,
+            input_commitment: [0u8; 32],
+            action_commitment: [0u8; 32],
+            execution_status: ExecutionStatus::Success,
+        };
+        let mut encoded = journal.encode().unwrap();
+        assert_eq!(encoded.len(), 209); // Fixed size
+
+        // Append trailing byte
+        encoded.push(0xFF);
+        assert_eq!(encoded.len(), 210);
+
+        // Decode should fail with InvalidLength
+        let result = KernelJournalV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+    }
+
+    #[test]
+    fn test_trailing_bytes_rejected_action() {
+        // Create a valid ActionV1 encoding
+        let action = ActionV1 {
+            action_type: 1,
+            target: [0x42u8; 32],
+            payload: vec![1, 2, 3],
+        };
+        let mut encoded = action.encode().unwrap();
+
+        // Append trailing byte
+        encoded.push(0xFF);
+
+        // Decode should fail with InvalidLength
+        let result = ActionV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+    }
+
+    #[test]
+    fn test_trailing_bytes_rejected_agent_output() {
+        // Create a valid AgentOutput encoding with one action
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: 1,
+                target: [0x42u8; 32],
+                payload: vec![],
+            }],
+        };
+        let mut encoded = output.encode().unwrap();
+
+        // Append trailing byte
+        encoded.push(0xFF);
+
+        // Decode should fail with InvalidLength
+        let result = AgentOutput::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+    }
+
+    // ========================================================================
+    // P0.2: Commitment Helper Tests
+    // ========================================================================
+
+    #[test]
+    fn test_kernel_input_v1_commitment_helper() {
+        // Create input and compute commitment using helper
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0u8; 32],
+            agent_code_hash: [0u8; 32],
+            constraint_set_hash: [0u8; 32],
+            input_root: [0u8; 32],
+            execution_nonce: 0,
+            opaque_agent_inputs: vec![],
+        };
+
+        // Using helper function
+        let commitment_via_helper = kernel_input_v1_commitment(&input).unwrap();
+
+        // Manual computation (encode then hash)
+        let encoded = input.encode().unwrap();
+        let commitment_manual = compute_input_commitment(&encoded);
+
+        // Both should produce the same result
+        assert_eq!(commitment_via_helper, commitment_manual);
+
+        // Verify known golden value
+        let expected_hex = "f0b4a449964d5ff3e473605e3ed1af1223f60135392d8add3244d2926ab9ab3f";
+        let expected: [u8; 32] = hex_to_bytes32(expected_hex);
+        assert_eq!(commitment_via_helper, expected);
+    }
+
+    #[test]
+    fn test_kernel_input_v1_commitment_helper_standard_case() {
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42u8; 32],
+            agent_code_hash: [0xaau8; 32],
+            constraint_set_hash: [0xbbu8; 32],
+            input_root: [0xccu8; 32],
+            execution_nonce: 12345,
+            opaque_agent_inputs: vec![1, 2, 3, 4, 5],
+        };
+
+        let commitment = kernel_input_v1_commitment(&input).unwrap();
+
+        // Verify known golden value
+        let expected_hex = "6e4a2cce578937164ab4c0016a678b8e9d24a729c7c418b793b447fd299ff6a4";
+        let expected: [u8; 32] = hex_to_bytes32(expected_hex);
+        assert_eq!(commitment, expected);
+    }
+
+    // ========================================================================
+    // P0.2: Golden Vector Tests
+    // ========================================================================
+
+    #[test]
+    fn test_golden_vector_kernel_input_minimal() {
+        // Golden vector: minimal_zeros
+        let encoded_hex = "01000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+        let commitment_hex = "f0b4a449964d5ff3e473605e3ed1af1223f60135392d8add3244d2926ab9ab3f";
+
+        let encoded = hex_to_vec(encoded_hex);
+        let expected_commitment = hex_to_bytes32(commitment_hex);
+
+        // Decode and verify
+        let decoded = KernelInputV1::decode(&encoded).unwrap();
+        assert_eq!(decoded.protocol_version, 1);
+        assert_eq!(decoded.kernel_version, 1);
+        assert_eq!(decoded.agent_id, [0u8; 32]);
+        assert_eq!(decoded.execution_nonce, 0);
+        assert!(decoded.opaque_agent_inputs.is_empty());
+
+        // Re-encode and verify round-trip
+        let re_encoded = decoded.encode().unwrap();
+        assert_eq!(re_encoded, encoded);
+
+        // Verify commitment
+        let commitment = compute_input_commitment(&encoded);
+        assert_eq!(commitment, expected_commitment);
+    }
+
+    #[test]
+    fn test_golden_vector_kernel_input_standard() {
+        // Golden vector: standard_case
+        let encoded_hex = "01000000010000004242424242424242424242424242424242424242424242424242424242424242aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc3930000000000000050000000102030405";
+        let commitment_hex = "6e4a2cce578937164ab4c0016a678b8e9d24a729c7c418b793b447fd299ff6a4";
+
+        let encoded = hex_to_vec(encoded_hex);
+        let expected_commitment = hex_to_bytes32(commitment_hex);
+
+        // Decode and verify
+        let decoded = KernelInputV1::decode(&encoded).unwrap();
+        assert_eq!(decoded.protocol_version, 1);
+        assert_eq!(decoded.kernel_version, 1);
+        assert_eq!(decoded.agent_id, [0x42u8; 32]);
+        assert_eq!(decoded.agent_code_hash, [0xaau8; 32]);
+        assert_eq!(decoded.execution_nonce, 12345);
+        assert_eq!(decoded.opaque_agent_inputs, vec![1, 2, 3, 4, 5]);
+
+        // Re-encode and verify round-trip
+        let re_encoded = decoded.encode().unwrap();
+        assert_eq!(re_encoded, encoded);
+
+        // Verify commitment
+        let commitment = compute_input_commitment(&encoded);
+        assert_eq!(commitment, expected_commitment);
+    }
+
+    #[test]
+    fn test_golden_vector_kernel_journal_minimal() {
+        // Golden vector: journal minimal_zeros (209 bytes)
+        let encoded_hex = "0100000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001";
+
+        let encoded = hex_to_vec(encoded_hex);
+        assert_eq!(encoded.len(), 209); // Fixed size
+
+        // Decode and verify
+        let decoded = KernelJournalV1::decode(&encoded).unwrap();
+        assert_eq!(decoded.protocol_version, 1);
+        assert_eq!(decoded.kernel_version, 1);
+        assert_eq!(decoded.agent_id, [0u8; 32]);
+        assert_eq!(decoded.execution_status, ExecutionStatus::Success);
+
+        // Re-encode and verify round-trip
+        let re_encoded = decoded.encode().unwrap();
+        assert_eq!(re_encoded, encoded);
+    }
+
+    #[test]
+    fn test_golden_vector_kernel_journal_standard() {
+        // Golden vector: journal standard_case (209 bytes)
+        let encoded_hex = "01000000010000004242424242424242424242424242424242424242424242424242424242424242aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc3930000000000000ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee01";
+
+        let encoded = hex_to_vec(encoded_hex);
+        assert_eq!(encoded.len(), 209);
+
+        // Decode and verify
+        let decoded = KernelJournalV1::decode(&encoded).unwrap();
+        assert_eq!(decoded.protocol_version, 1);
+        assert_eq!(decoded.agent_id, [0x42u8; 32]);
+        assert_eq!(decoded.agent_code_hash, [0xaau8; 32]);
+        assert_eq!(decoded.execution_nonce, 12345);
+        assert_eq!(decoded.input_commitment, [0xddu8; 32]);
+        assert_eq!(decoded.action_commitment, [0xeeu8; 32]);
+        assert_eq!(decoded.execution_status, ExecutionStatus::Success);
+
+        // Re-encode and verify round-trip
+        let re_encoded = decoded.encode().unwrap();
+        assert_eq!(re_encoded, encoded);
+    }
+
+    // ========================================================================
+    // P0.2: Negative Vector Tests
+    // ========================================================================
+
+    #[test]
+    fn test_negative_vector_truncated() {
+        // Truncated input (only 2 bytes)
+        let encoded = hex_to_vec("0102");
+        let result = KernelInputV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::UnexpectedEndOfInput)));
+    }
+
+    #[test]
+    fn test_negative_vector_trailing_bytes() {
+        // Valid encoding with extra trailing byte 0xff
+        let encoded_hex = "01000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000ff";
+        let encoded = hex_to_vec(encoded_hex);
+
+        let result = KernelInputV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidLength)));
+    }
+
+    #[test]
+    fn test_negative_vector_wrong_version() {
+        // Protocol version set to 999 (0xe7030000 in little-endian)
+        let encoded_hex = "e7030000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+        let encoded = hex_to_vec(encoded_hex);
+
+        let result = KernelInputV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+    }
+
+    #[test]
+    fn test_negative_vector_empty_input() {
+        // Empty byte array
+        let encoded: Vec<u8> = vec![];
+        let result = KernelInputV1::decode(&encoded);
+        assert!(matches!(result, Err(CodecError::UnexpectedEndOfInput)));
+    }
+
+    // ========================================================================
+    // P0.2: Helper Function Tests
+    // ========================================================================
+
+    #[test]
+    fn test_codec_helper_put_get_u32() {
+        let mut buf = Vec::new();
+        put_u32_le(&mut buf, 0x12345678);
+        assert_eq!(buf, vec![0x78, 0x56, 0x34, 0x12]);
+
+        let mut offset = 0;
+        let value = get_u32_le(&buf, &mut offset).unwrap();
+        assert_eq!(value, 0x12345678);
+        assert_eq!(offset, 4);
+    }
+
+    #[test]
+    fn test_codec_helper_put_get_u64() {
+        let mut buf = Vec::new();
+        put_u64_le(&mut buf, 0x123456789ABCDEF0);
+        assert_eq!(buf, vec![0xF0, 0xDE, 0xBC, 0x9A, 0x78, 0x56, 0x34, 0x12]);
+
+        let mut offset = 0;
+        let value = get_u64_le(&buf, &mut offset).unwrap();
+        assert_eq!(value, 0x123456789ABCDEF0);
+        assert_eq!(offset, 8);
+    }
+
+    #[test]
+    fn test_codec_helper_put_get_bytes32() {
+        let bytes: [u8; 32] = [0x42; 32];
+        let mut buf = Vec::new();
+        put_bytes32(&mut buf, &bytes);
+        assert_eq!(buf.len(), 32);
+
+        let mut offset = 0;
+        let result = get_bytes32(&buf, &mut offset).unwrap();
+        assert_eq!(result, bytes);
+        assert_eq!(offset, 32);
+    }
+
+    #[test]
+    fn test_codec_helper_ensure_no_trailing_bytes() {
+        // Exact match - should succeed
+        let result = ensure_no_trailing_bytes(&[1, 2, 3], 3);
+        assert!(result.is_ok());
+
+        // Trailing bytes - should fail
+        let result = ensure_no_trailing_bytes(&[1, 2, 3, 4], 3);
+        assert!(matches!(result, Err(CodecError::InvalidLength)));
+    }
+
+    #[test]
+    fn test_codec_helper_get_u32_insufficient_bytes() {
+        let buf = vec![0x01, 0x02]; // Only 2 bytes
+        let mut offset = 0;
+        let result = get_u32_le(&buf, &mut offset);
+        assert!(matches!(result, Err(CodecError::UnexpectedEndOfInput)));
+    }
+
+    #[test]
+    fn test_codec_helper_get_bytes32_insufficient_bytes() {
+        let buf = vec![0x42; 16]; // Only 16 bytes
+        let mut offset = 0;
+        let result = get_bytes32(&buf, &mut offset);
+        assert!(matches!(result, Err(CodecError::UnexpectedEndOfInput)));
+    }
+
+    // ========================================================================
+    // Test Helpers
+    // ========================================================================
+
+    fn hex_to_vec(hex: &str) -> Vec<u8> {
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    fn hex_to_bytes32(hex: &str) -> [u8; 32] {
+        let vec = hex_to_vec(hex);
+        assert_eq!(vec.len(), 32, "Expected 32 bytes, got {}", vec.len());
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&vec);
+        arr
     }
 }
