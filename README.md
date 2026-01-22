@@ -3,6 +3,7 @@
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
 [![Tests](https://img.shields.io/badge/tests-%20passed-brightgreen)](#testing)
 [![Deterministic](https://img.shields.io/badge/execution-deterministic-blue)](#consensus-critical-properties)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 ## Overview
 
@@ -232,4 +233,4 @@ All security properties are enforced cryptographically through zkVM proofs.
 
 ## License
 
-This project is part of the Defiesta execution kernel implementation.
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
