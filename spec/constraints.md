@@ -46,6 +46,8 @@ Any action type not in this list is **invalid** and causes a constraint violatio
 
 ### Action Payload Schemas
 
+**Encoding:** All integer fields in action payloads use little-endian encoding, consistent with the kernel codec specification.
+
 #### Echo (0x00000001)
 
 No schema enforcement. Payload is opaque bytes.
@@ -131,9 +133,9 @@ Total: 60 bytes
 
 The following invariants are validated:
 - `version` must be 1
-- `max_actions_per_output` must be ≤ 64 (protocol maximum)
+- `max_actions_per_output` must be ≤ 64 (protocol maximum); may be 0 (rejects any non-empty output)
 - `max_drawdown_bps` must be ≤ 10,000 (100%)
-- `max_leverage_bps` can be 0 (would reject all leveraged positions)
+- `max_leverage_bps` may be 0 (only `leverage_bps == 0` passes)
 - `cooldown_seconds` has no upper bound (operator choice)
 
 ### Default Constraint Set (P0.3)
@@ -191,6 +193,8 @@ ELSE:
 
 **Snapshot Optionality (P0.3):** Snapshot is optional unless cooldown or drawdown constraints are enabled. Malformed snapshots with wrong version are treated as missing. This means a wrong-version snapshot combined with disabled cooldown/drawdown will pass validation.
 
+**Missing Snapshot Definition:** A snapshot is considered missing if `opaque_agent_inputs.len() < 36` or if `snapshot_version != 1`.
+
 ---
 
 ## Constraint Rules
@@ -211,8 +215,8 @@ Constraints are evaluated in the following deterministic order:
    - Leverage check (if applicable)
 
 3. **Global invariants**
-   - Cooldown check (if state snapshot present)
-   - Drawdown check (if state snapshot present)
+   - Cooldown check (if `cooldown_seconds > 0`; missing snapshot → `InvalidStateSnapshot`)
+   - Drawdown check (if `max_drawdown_bps < 10_000`; missing snapshot → `InvalidStateSnapshot`)
 
 Evaluation stops at the first violation.
 
@@ -260,6 +264,8 @@ REQUIRE: notional <= constraint_set.max_position_notional
 
 Violation: `PositionTooLarge` (0x04)
 
+**AdjustPosition Semantics:** For AdjustPosition, position size checks apply only when `new_notional > 0`. A value of 0 means "unchanged" and bypasses the check.
+
 #### Leverage (Rule 2d)
 
 For OpenPosition and AdjustPosition:
@@ -269,6 +275,8 @@ REQUIRE: leverage_bps <= constraint_set.max_leverage_bps
 ```
 
 Violation: `LeverageTooHigh` (0x05)
+
+**AdjustPosition Semantics:** For AdjustPosition, leverage checks apply only when `new_leverage_bps > 0`. A value of 0 means "unchanged" and bypasses the check.
 
 #### Drawdown (Rule 3a)
 
@@ -347,6 +355,8 @@ This is the SHA-256 hash of `[0x00, 0x00, 0x00, 0x00]`.
 The `action.target` field is **not validated** by the constraint engine in P0.3. This field is passed through to executor contracts without any constraint enforcement.
 
 **Security Note:** Executor contracts are responsible for validating the `target` field according to their own rules. The constraint system does not restrict which targets can be called.
+
+**Security Posture:** If the executor allows arbitrary calls based on `target`, then P0.3 constraints do not prevent malicious call targets. Operators must ensure executors implement appropriate target validation.
 
 Future versions may add per-action-type target validation (e.g., only allowing specific contract addresses for swaps).
 
