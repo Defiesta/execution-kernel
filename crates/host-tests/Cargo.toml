@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kernel-core = { path = "../kernel-core" }
+kernel-core = { path = "../kernel-core", features = ["std"] }
 kernel-guest = { path = "../kernel-guest" }
 agent-traits = { path = "../agent-traits" }
 constraints = { path = "../constraints" }

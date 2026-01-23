@@ -1,3 +1,5 @@
+use alloc::vec::Vec;
+
 /// Kernel input structure for P0.1 protocol.
 ///
 /// Contains all consensus-critical fields needed to bind the proof to:

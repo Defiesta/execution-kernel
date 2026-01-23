@@ -2,14 +2,15 @@
 resolver = "2"
 members = [
     "crates/kernel-core",
-    "crates/kernel-guest", 
+    "crates/kernel-guest",
     "crates/agent-traits",
     "crates/constraints",
+    "crates/kernel-sdk",
     "crates/host-tests",
 ]
 
 [workspace.dependencies]
-sha2 = "0.10"
+sha2 = { version = "0.10", default-features = false, features = [] }
 
 [profile.release]
 debug = 1

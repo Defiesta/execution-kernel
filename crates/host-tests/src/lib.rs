@@ -195,23 +195,27 @@ mod tests {
 
     #[test]
     fn test_invalid_protocol_version() {
-        let mut input = make_input(vec![1, 2, 3]);
-        input.protocol_version = 999;
+        // Encode a valid input, then corrupt the protocol_version bytes
+        let input = make_input(vec![1, 2, 3]);
+        let mut input_bytes = input.encode().unwrap();
 
-        let input_bytes = input.encode().unwrap();
+        // Corrupt protocol_version to 999 (little-endian, first 4 bytes)
+        input_bytes[0..4].copy_from_slice(&999u32.to_le_bytes());
+
         let result = KernelInputV1::decode(&input_bytes);
-
         assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
     }
 
     #[test]
     fn test_invalid_kernel_version() {
-        let mut input = make_input(vec![1, 2, 3]);
-        input.kernel_version = 999;
+        // Encode a valid input, then corrupt the kernel_version bytes
+        let input = make_input(vec![1, 2, 3]);
+        let mut input_bytes = input.encode().unwrap();
 
-        let input_bytes = input.encode().unwrap();
+        // Corrupt kernel_version to 999 (little-endian, bytes 4-7)
+        input_bytes[4..8].copy_from_slice(&999u32.to_le_bytes());
+
         let result = KernelInputV1::decode(&input_bytes);
-
         assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
     }
 
