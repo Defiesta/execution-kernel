@@ -1,7 +1,7 @@
 # Execution Kernel - Canonical zkVM Guest Program
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-%20passed-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen)](#testing)
 [![Deterministic](https://img.shields.io/badge/execution-deterministic-blue)](#consensus-critical-properties)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
@@ -16,16 +16,17 @@ This repository implements the **Canonical zkVM Guest Program**. The kernel prov
 The project is organized as a Rust workspace with the following crates:
 
 - **`kernel-core`** - Core types, deterministic binary codec, and SHA-256 hashing
-- **`kernel-guest`** - RISC Zero guest binary implementation  
+- **`kernel-guest`** - RISC Zero guest binary implementation
 - **`agent-traits`** - Canonical agent interface (with trivial reference implementation)
-- **`constraints`** - Constraint engine stub (returns Ok for P0.1)
-- **`host-tests`** - Comprehensive test suite
+- **`constraints`** - Constraint engine with action validation, asset whitelists, position limits, and global invariants
+- **`host-tests`** - Test suite (82 tests)
 
 ## Protocol Constants
 
 - `PROTOCOL_VERSION = 1`
-- `KERNEL_VERSION = 1`  
+- `KERNEL_VERSION = 1`
 - `MAX_AGENT_INPUT_BYTES = 64,000`
+- `MAX_ACTIONS_PER_OUTPUT = 64`
 - `HASH_FUNCTION = SHA-256`
 
 ## Building
@@ -40,7 +41,7 @@ cargo build --release --features risc0
 
 ## Testing
 
-Run the comprehensive test suite:
+Run the test suite:
 
 ```bash
 # Run all tests
@@ -52,20 +53,20 @@ cargo test -- --nocapture
 # Run specific test categories
 cargo test test_determinism
 cargo test test_golden_vector
-cargo test test_encoding_round_trip
+cargo test test_constraint
 ```
 
 ### Test Coverage
 
-The test suite includes **11 comprehensive tests**:
+The test suite includes **82 comprehensive tests**:
 
-- **Encoding round-trip tests** (3) - Verify canonical codec correctness for all protocol types
-- **Golden vector tests** (2) - SHA-256 commitment verification with known outputs
-- **Determinism tests** (1) - Same input produces identical journal bytes  
-- **Error handling tests** (3) - Invalid inputs, oversized data, malformed encoding
-- **Protocol validation tests** (2) - Version checks and constraint enforcement
-
-## Key Implementation Details
+- **Encoding round-trip tests** - Verify canonical codec correctness for all protocol types
+- **Golden vector tests** - SHA-256 commitment verification with known outputs
+- **Determinism tests** - Same input produces identical journal bytes
+- **Trailing bytes rejection tests** - Strict decoding for all types
+- **Constraint validation tests** - All violation codes, payload schemas, whitelist checks
+- **Overflow protection tests** - Cooldown timestamp arithmetic safety
+- **Protocol validation tests** - Version checks and identity field propagation
 
 ### Deterministic Binary Codec
 
@@ -75,31 +76,24 @@ All protocol objects use explicit manual encoding:
 - Length-prefixed byte arrays (`[length: u32][data: bytes]`)
 - Fixed-size arrays (agent_id, commitments)
 - No serde auto-derive to ensure determinism
+- Strict trailing bytes rejection
 
-### SHA-256 Commitments
 
-- **Input commitment**: `SHA256(full_input_bytes)`
-- **Action commitment**: `SHA256(agent_output_bytes)`
+### Failure Semantics
 
-### Error Handling
-
-Any execution error results in kernel abortion before journal commit. The kernel enforces:
-
-- Protocol version validation
-- Input size limits (64KB max)
-- Mandatory constraint checking
-- Deterministic execution flow
+- **Hard failures** (decoding, version mismatch): Kernel aborts, no journal produced
+- **Constraint violations**: Failure journal produced with `execution_status = 0x02` and empty action commitment
 
 ### Guest Program Flow
 
 1. Read input from zkVM environment
-2. Decode and validate `KernelInputV1`  
+2. Decode and validate `KernelInputV1`
 3. Verify protocol version
 4. Compute input commitment
 5. Execute agent with bounded input
-6. Call constraint engine (mandatory)
-7. Construct canonical journal
-8. Commit journal or abort on error
+6. Enforce constraints (mandatory, unskippable)
+7. Construct canonical journal (Success or Failure)
+8. Commit journal or abort on hard error
 
 ## Usage
 
@@ -112,7 +106,7 @@ cd execution-kernel
 cargo test
 
 # All tests should pass with output:
-# test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+# test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 ### Creating a Kernel Input
@@ -121,18 +115,24 @@ cargo test
 use kernel_core::*;
 
 let input = KernelInputV1 {
-    protocol_version: PROTOCOL_VERSION,  // Always 1 for P0.1
-    agent_id: [0x42; 32],               // 32-byte agent identifier  
-    agent_input: vec![1, 2, 3, 4, 5],   // Max 64KB of agent input data
+    protocol_version: PROTOCOL_VERSION,
+    kernel_version: KERNEL_VERSION,
+    agent_id: [0x42; 32],
+    agent_code_hash: [0xaa; 32],
+    constraint_set_hash: [0xbb; 32],
+    input_root: [0xcc; 32],
+    execution_nonce: 1,
+    opaque_agent_inputs: vec![1, 2, 3, 4, 5],  // Max 64KB
 };
 
-let input_bytes = input.encode();  // Deterministic binary encoding
+let input_bytes = input.encode()?;  // Deterministic binary encoding
 ```
 
 ### Running the Kernel
 
 ```rust
 use kernel_guest::kernel_main;
+use kernel_core::*;
 
 // Execute kernel with encoded input
 let journal_bytes = kernel_main(&input_bytes)?;
@@ -142,30 +142,8 @@ let journal = KernelJournalV1::decode(&journal_bytes)?;
 
 // Journal contains:
 // - input_commitment: SHA256(input_bytes)
-// - action_commitment: SHA256(agent_output_bytes) 
-// - execution_status: Success (only status in P0.1)
-```
-
-### Example: End-to-End Execution
-
-```rust
-use kernel_core::*;
-use kernel_guest::kernel_main;
-
-// Create input
-let input = KernelInputV1 {
-    protocol_version: 1,
-    agent_id: [0x99; 32],
-    agent_input: b"Hello, zkVM!".to_vec(),
-};
-
-// Execute kernel
-let journal_bytes = kernel_main(&input.encode()).unwrap();
-let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
-
-// Verify execution
-assert_eq!(journal.execution_status, ExecutionStatus::Success);
-assert_eq!(journal.protocol_version, 1);
+// - action_commitment: SHA256(agent_output_bytes) or empty commitment on failure
+// - execution_status: Success (0x01) or Failure (0x02)
 ```
 
 ## Consensus-Critical Properties
@@ -173,63 +151,39 @@ assert_eq!(journal.protocol_version, 1);
 This implementation prioritizes **determinism and correctness over convenience**:
 
 - No floating-point operations
-- No randomness or time dependencies  
+- No randomness or time dependencies
 - No unordered iteration
 - Bounded memory and computation
 - Explicit error handling with abort-before-commit
 - Canonical binary encoding without auto-derive
+- Strict trailing bytes rejection
 
 Any deviation from these principles breaks protocol consensus.
 
 ## Development
 
-### Code Organization
+### Documentation
 
-- **Types** (`kernel-core/src/types.rs`) - Protocol data structures
-- **Codec** (`kernel-core/src/codec.rs`) - Deterministic binary encoding  
-- **Hash** (`kernel-core/src/hash.rs`) - SHA-256 commitment functions
-- **Guest** (`kernel-guest/src/lib.rs`) - Main kernel execution logic
-- **Tests** (`host-tests/src/lib.rs`) - Comprehensive validation
-
-### Adding New Features
-
-When extending beyond P0.1:
-
-1. Update protocol version constants
-2. Extend canonical types with deterministic field ordering
-3. Update codec implementation with version handling  
-4. Add comprehensive test coverage
-5. Verify determinism across rebuilds
+- `docs/P0.1_DOCUMENTATION.md` - Foundational concepts and design rationale
+- `docs/P0.2_DOCUMENTATION.md` - Canonical codec specification
+- `docs/P0.3_DOCUMENTATION.md` - Constraint system documentation
+- `spec/codec.md` - Wire format specification
+- `spec/constraints.md` - Constraint system specification (locked)
 
 ## Security Considerations
 
 The kernel assumes a **malicious host environment** and defends against:
 
 - **Input forgery attempts** - All inputs are cryptographically committed via SHA-256
-- **Constraint bypass attempts** - Constraint checking is mandatory and unskippable  
+- **Constraint bypass attempts** - Constraint checking is mandatory and unskippable
 - **Non-determinism exploitation** - Strict deterministic execution requirements
 - **Protocol version confusion** - Explicit version validation on all inputs
+- **Encoding malleability** - Exact payload lengths, trailing bytes rejected
+- **Timestamp overflow attacks** - Checked arithmetic for cooldown calculations
 
 All security properties are enforced cryptographically through zkVM proofs.
 
-## Implementation Status
-
-### ✅ **Completed Features (P0.1)**
-
-- [x] **Canonical Types** - `KernelInputV1`, `KernelJournalV1`, `ExecutionStatus`
-- [x] **Deterministic Binary Codec** - Manual encoding without serde dependencies
-- [x] **SHA-256 Commitments** - Input and action commitment computation
-- [x] **Agent Interface** - `Agent` trait with trivial reference implementation
-- [x] **Constraint Engine** - Mandatory `check()` function (stub for P0.1)
-- [x] **Guest Program** - Complete execution kernel with error handling
-- [x] **Comprehensive Tests** - 11 tests covering all functionality
-- [x] **Documentation** - Complete usage examples and API documentation
-
-### 🚀 **Future Milestones**
-
-- **P0.2** - Full constraint engine implementation
-- **P0.3** - Advanced agent interface with real-world capabilities
-- **P1.0** - Production-ready zkVM integration
+**Note:** The `action.target` field is not validated by the constraint engine in P0.3. Executor contracts are responsible for target validation.
 
 ## License
 
