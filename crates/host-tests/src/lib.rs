@@ -1555,6 +1555,142 @@ mod tests {
     }
 
     // ========================================================================
+    // P0.3: Asset Whitelist Tests
+    // ========================================================================
+
+    #[test]
+    fn test_open_position_asset_not_whitelisted_fails() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_OPEN_POSITION};
+
+        let input = make_input(vec![]);
+
+        // Build OpenPosition payload with asset_id = [0x99; 32]
+        let mut payload = Vec::with_capacity(45);
+        payload.extend_from_slice(&[0x99; 32]);              // asset_id (NOT whitelisted)
+        payload.extend_from_slice(&1000u64.to_le_bytes());   // notional
+        payload.extend_from_slice(&10_000u32.to_le_bytes()); // leverage_bps (1x)
+        payload.push(0);                                      // direction
+
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_OPEN_POSITION,
+                target: [0x22; 32],
+                payload,
+            }],
+        };
+
+        // Whitelist only allows [0x42; 32]
+        let constraints = ConstraintSetV1 {
+            allowed_asset_id: [0x42; 32],
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::AssetNotWhitelisted);
+        assert_eq!(violation.action_index, Some(0));
+    }
+
+    #[test]
+    fn test_swap_from_asset_not_whitelisted_fails() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_SWAP};
+
+        let input = make_input(vec![]);
+
+        // Build Swap payload with from_asset = [0x99; 32] (not whitelisted)
+        let mut payload = Vec::with_capacity(72);
+        payload.extend_from_slice(&[0x99; 32]);            // from_asset (NOT whitelisted)
+        payload.extend_from_slice(&[0x42; 32]);            // to_asset (whitelisted)
+        payload.extend_from_slice(&1000u64.to_le_bytes()); // amount
+
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_SWAP,
+                target: [0x55; 32],
+                payload,
+            }],
+        };
+
+        // Whitelist only allows [0x42; 32]
+        let constraints = ConstraintSetV1 {
+            allowed_asset_id: [0x42; 32],
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::AssetNotWhitelisted);
+        assert_eq!(violation.action_index, Some(0));
+    }
+
+    #[test]
+    fn test_swap_to_asset_not_whitelisted_fails() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_SWAP};
+
+        let input = make_input(vec![]);
+
+        // Build Swap payload with to_asset = [0x99; 32] (not whitelisted)
+        let mut payload = Vec::with_capacity(72);
+        payload.extend_from_slice(&[0x42; 32]);            // from_asset (whitelisted)
+        payload.extend_from_slice(&[0x99; 32]);            // to_asset (NOT whitelisted)
+        payload.extend_from_slice(&1000u64.to_le_bytes()); // amount
+
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_SWAP,
+                target: [0x55; 32],
+                payload,
+            }],
+        };
+
+        // Whitelist only allows [0x42; 32]
+        let constraints = ConstraintSetV1 {
+            allowed_asset_id: [0x42; 32],
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::AssetNotWhitelisted);
+        assert_eq!(violation.action_index, Some(0));
+    }
+
+    #[test]
+    fn test_allowed_asset_id_zero_allows_any_asset() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_OPEN_POSITION};
+
+        let input = make_input(vec![]);
+
+        // Build OpenPosition payload with arbitrary asset_id
+        let mut payload = Vec::with_capacity(45);
+        payload.extend_from_slice(&[0x99; 32]);              // asset_id (any value)
+        payload.extend_from_slice(&1000u64.to_le_bytes());   // notional
+        payload.extend_from_slice(&10_000u32.to_le_bytes()); // leverage_bps (1x)
+        payload.push(0);                                      // direction
+
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_OPEN_POSITION,
+                target: [0x22; 32],
+                payload,
+            }],
+        };
+
+        // allowed_asset_id = [0; 32] means all assets are allowed
+        let constraints = ConstraintSetV1 {
+            allowed_asset_id: [0u8; 32], // Zero = all assets allowed
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        // Should pass - zero allowed_asset_id means no whitelist restriction
+        assert!(result.is_ok());
+    }
+
+    // ========================================================================
     // P0.3: Cooldown Timestamp Overflow Tests
     // ========================================================================
 

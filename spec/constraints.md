@@ -172,6 +172,8 @@ Offset | Field                | Type      | Size | Description
 
 Total: 36 bytes
 
+**Snapshot Prefix Rule:** The snapshot is decoded from the first 36 bytes of `opaque_agent_inputs`. Any trailing bytes are agent-specific data and are ignored by the constraint engine. This allows agents to pass additional state through `opaque_agent_inputs` without affecting constraint validation.
+
 ### Snapshot Parsing Rules
 
 If `opaque_agent_inputs` is shorter than 36 bytes:
@@ -283,6 +285,8 @@ IF constraint_set.max_drawdown_bps < 10_000:
 ```
 
 Violation: `DrawdownExceeded` (0x06)
+
+**Drawdown Disabled Rule:** Drawdown checks are disabled if and only if `max_drawdown_bps == 10_000` (100%). Any value less than 10,000 enables drawdown enforcement. This is consistent with the snapshot parsing rules above.
 
 **Note:** When `current_equity > peak_equity` (equity growth), the drawdown is treated as 0. This uses saturating subtraction to prevent underflow.
 
