@@ -1,0 +1,379 @@
+{
+  "description": "Test vectors for P0.3 constraint enforcement",
+  "version": 1,
+  "vectors": [
+    {
+      "name": "echo_action_valid",
+      "description": "Echo action should always pass with default constraints",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 1,
+          "target": "1111111111111111111111111111111111111111111111111111111111111111",
+          "payload_hex": "010203"
+        }
+      ],
+      "expected": {
+        "status": "Success",
+        "violation_reason": null,
+        "violation_action_index": null
+      }
+    },
+    {
+      "name": "open_position_valid",
+      "description": "Valid OpenPosition action within all limits",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "1000000",
+        "max_leverage_bps": 50000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 2,
+          "target": "2222222222222222222222222222222222222222222222222222222222222222",
+          "payload_hex": "4242424242424242424242424242424242424242424242424242424242424242e80300000000000010270000000000"
+        }
+      ],
+      "expected": {
+        "status": "Success",
+        "violation_reason": null,
+        "violation_action_index": null
+      },
+      "notes": "asset_id=0x42*32, notional=1000, leverage_bps=10000 (1x), direction=0 (long)"
+    },
+    {
+      "name": "unknown_action_type",
+      "description": "Unknown action type should fail with UnknownActionType",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 255,
+          "target": "1111111111111111111111111111111111111111111111111111111111111111",
+          "payload_hex": ""
+        }
+      ],
+      "expected": {
+        "status": "Failure",
+        "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+        "violation_reason": "UnknownActionType",
+        "violation_reason_code": 2,
+        "violation_action_index": 0
+      }
+    },
+    {
+      "name": "position_too_large",
+      "description": "Position size exceeds max_position_notional",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "1000000",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 2,
+          "target": "2222222222222222222222222222222222222222222222222222222222222222",
+          "payload_hex": "424242424242424242424242424242424242424242424242424242424242424241420f000000000010270000000000"
+        }
+      ],
+      "expected": {
+        "status": "Failure",
+        "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+        "violation_reason": "PositionTooLarge",
+        "violation_reason_code": 4,
+        "violation_action_index": 0
+      },
+      "notes": "notional=1000001 exceeds max 1000000"
+    },
+    {
+      "name": "leverage_too_high",
+      "description": "Leverage exceeds max_leverage_bps",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 50000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 2,
+          "target": "2222222222222222222222222222222222222222222222222222222222222222",
+          "payload_hex": "4242424242424242424242424242424242424242424242424242424242424242e803000000000000e0930100000000"
+        }
+      ],
+      "expected": {
+        "status": "Failure",
+        "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+        "violation_reason": "LeverageTooHigh",
+        "violation_reason_code": 5,
+        "violation_action_index": 0
+      },
+      "notes": "leverage_bps=100000 (10x) exceeds max 50000 (5x)"
+    },
+    {
+      "name": "cooldown_not_elapsed",
+      "description": "Execution attempted before cooldown period elapsed",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 60,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": {
+        "snapshot_version": 1,
+        "last_execution_ts": 1000,
+        "current_ts": 1030,
+        "current_equity": 100000,
+        "peak_equity": 100000
+      },
+      "proposed_actions": [
+        {
+          "action_type": 1,
+          "target": "1111111111111111111111111111111111111111111111111111111111111111",
+          "payload_hex": "010203"
+        }
+      ],
+      "expected": {
+        "status": "Failure",
+        "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+        "violation_reason": "CooldownNotElapsed",
+        "violation_reason_code": 7,
+        "violation_action_index": null
+      },
+      "notes": "current_ts (1030) < last_execution_ts (1000) + cooldown (60) = 1060"
+    },
+    {
+      "name": "drawdown_exceeded",
+      "description": "Portfolio drawdown exceeds max_drawdown_bps",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 2000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": {
+        "snapshot_version": 1,
+        "last_execution_ts": 1000,
+        "current_ts": 2000,
+        "current_equity": 70000,
+        "peak_equity": 100000
+      },
+      "proposed_actions": [
+        {
+          "action_type": 1,
+          "target": "1111111111111111111111111111111111111111111111111111111111111111",
+          "payload_hex": "010203"
+        }
+      ],
+      "expected": {
+        "status": "Failure",
+        "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+        "violation_reason": "DrawdownExceeded",
+        "violation_reason_code": 6,
+        "violation_action_index": null
+      },
+      "notes": "30% drawdown ((100000-70000)*10000/100000=3000 bps) exceeds max 2000 bps (20%)"
+    },
+    {
+      "name": "too_many_actions",
+      "description": "Action count exceeds max_actions_per_output",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 2,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 1,
+          "target": "1111111111111111111111111111111111111111111111111111111111111111",
+          "payload_hex": "01"
+        },
+        {
+          "action_type": 1,
+          "target": "2222222222222222222222222222222222222222222222222222222222222222",
+          "payload_hex": "02"
+        },
+        {
+          "action_type": 1,
+          "target": "3333333333333333333333333333333333333333333333333333333333333333",
+          "payload_hex": "03"
+        }
+      ],
+      "expected": {
+        "status": "Failure",
+        "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+        "violation_reason": "InvalidOutputStructure",
+        "violation_reason_code": 1,
+        "violation_action_index": null
+      },
+      "notes": "3 actions exceed max_actions_per_output of 2"
+    },
+    {
+      "name": "empty_output_valid",
+      "description": "Empty output is always valid",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [],
+      "expected": {
+        "status": "Success",
+        "violation_reason": null,
+        "violation_action_index": null
+      }
+    },
+    {
+      "name": "close_position_valid",
+      "description": "Valid ClosePosition action",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 3,
+          "target": "3333333333333333333333333333333333333333333333333333333333333333",
+          "payload_hex": "abababababababababababababababababababababababababababababababab"
+        }
+      ],
+      "expected": {
+        "status": "Success",
+        "violation_reason": null,
+        "violation_action_index": null
+      },
+      "notes": "position_id=0xab*32"
+    },
+    {
+      "name": "swap_valid",
+      "description": "Valid Swap action",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 5,
+          "target": "5555555555555555555555555555555555555555555555555555555555555555",
+          "payload_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaabbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbe803000000000000"
+        }
+      ],
+      "expected": {
+        "status": "Success",
+        "violation_reason": null,
+        "violation_action_index": null
+      },
+      "notes": "from_asset=0xaa*32, to_asset=0xbb*32, amount=1000"
+    },
+    {
+      "name": "invalid_open_position_payload",
+      "description": "OpenPosition with truncated payload",
+      "constraint_set": {
+        "version": 1,
+        "max_position_notional": "18446744073709551615",
+        "max_leverage_bps": 100000,
+        "max_drawdown_bps": 10000,
+        "cooldown_seconds": 0,
+        "max_actions_per_output": 64,
+        "allowed_asset_id": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "state_snapshot": null,
+      "proposed_actions": [
+        {
+          "action_type": 2,
+          "target": "2222222222222222222222222222222222222222222222222222222222222222",
+          "payload_hex": "42424242424242424242"
+        }
+      ],
+      "expected": {
+        "status": "Failure",
+        "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+        "violation_reason": "InvalidActionPayload",
+        "violation_reason_code": 10,
+        "violation_action_index": 0
+      },
+      "notes": "Payload is only 10 bytes, OpenPosition requires 45 bytes minimum"
+    }
+  ],
+  "constants": {
+    "empty_output_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+    "violation_reason_codes": {
+      "InvalidOutputStructure": 1,
+      "UnknownActionType": 2,
+      "AssetNotWhitelisted": 3,
+      "PositionTooLarge": 4,
+      "LeverageTooHigh": 5,
+      "DrawdownExceeded": 6,
+      "CooldownNotElapsed": 7,
+      "InvalidStateSnapshot": 8,
+      "InvalidConstraintSet": 9,
+      "InvalidActionPayload": 10
+    },
+    "action_types": {
+      "Echo": 1,
+      "OpenPosition": 2,
+      "ClosePosition": 3,
+      "AdjustPosition": 4,
+      "Swap": 5
+    }
+  }
+}
