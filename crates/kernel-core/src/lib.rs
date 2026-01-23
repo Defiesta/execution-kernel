@@ -1,3 +1,20 @@
+//! Core types, codec, and hashing for the execution kernel.
+//!
+//! This crate provides the foundational types and utilities used by both
+//! the kernel-guest (zkVM execution) and kernel-sdk (agent development).
+//!
+//! # no_std Support
+//!
+//! This crate is `#![no_std]` by default and uses `alloc` for heap allocations.
+//! Enable the `std` feature for host-side tooling that needs std functionality.
+
+#![no_std]
+#![forbid(unsafe_code)]
+#![deny(clippy::std_instead_of_alloc)]
+#![deny(clippy::std_instead_of_core)]
+
+extern crate alloc;
+
 pub mod types;
 pub mod codec;
 pub mod hash;

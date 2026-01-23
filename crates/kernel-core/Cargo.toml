@@ -2,6 +2,24 @@
 name = "kernel-core"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
+description = "Core types, codec, and hashing for the execution kernel"
+license = "Apache-2.0"
+
+# This crate is designed to be no_std compatible for zkVM guest use.
+# The sha2 dependency has default-features disabled to avoid std linkage.
+
+[lib]
+crate-type = ["rlib"]
 
 [dependencies]
-sha2.workspace = true
+sha2 = { workspace = true } # inherits default-features = false from workspace
+
+[features]
+default = []
+# Enable std for host-side tooling (e.g., error handling, I/O)
+std = ["sha2/std"]
+
+[lints.clippy]
+std_instead_of_alloc = "deny"
+std_instead_of_core = "deny"
