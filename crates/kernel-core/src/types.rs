@@ -61,16 +61,24 @@ pub struct KernelJournalV1 {
 
 /// Execution status enum.
 ///
-/// Encoding: Success = 0x01
-/// 0x00 is reserved/invalid (prevents uninitialized memory from being interpreted as success).
-/// Any other value is invalid and must be rejected on decode.
+/// Encoding:
+/// - Success = 0x01: Execution completed and constraints passed
+/// - Failure = 0x02: Execution completed but constraints violated
+/// - 0x00 is reserved/invalid (prevents uninitialized memory from being interpreted as success)
+/// - 0x03-0xFF are reserved for future expansion
 ///
-/// For P0.1, only Success is defined. Failure cases abort before
-/// journal commit, so no failure status is needed in the journal.
-#[derive(Clone, Debug, PartialEq)]
+/// On Failure, the journal is still produced with:
+/// - action_commitment = SHA256(empty AgentOutput encoding)
+/// - execution_status = Failure (0x02)
+///
+/// Verifiers/contracts should reject state transitions for Failure journals.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExecutionStatus {
-    /// Execution completed successfully. Encoded as 0x01.
+    /// Execution completed successfully and all constraints passed. Encoded as 0x01.
     Success,
+    /// Execution completed but constraints were violated. Encoded as 0x02.
+    /// The action_commitment will be the commitment to an empty AgentOutput.
+    Failure,
 }
 
 /// Structured action format for agent output.
@@ -217,13 +225,83 @@ pub enum AgentError {
     TooManyActions,
 }
 
-/// Constraint checking errors
+/// Constraint violation reason codes (stable numeric codes for determinism).
+///
+/// These codes are used to identify the specific constraint that was violated.
+/// The numeric values are stable and should not be changed once defined.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ConstraintViolationReason {
+    /// Output structure is invalid (too many actions, payload too large)
+    InvalidOutputStructure = 0x01,
+    /// Action type is not recognized/supported
+    UnknownActionType = 0x02,
+    /// Asset is not in the whitelist
+    AssetNotWhitelisted = 0x03,
+    /// Position size exceeds maximum allowed
+    PositionTooLarge = 0x04,
+    /// Leverage exceeds maximum allowed
+    LeverageTooHigh = 0x05,
+    /// Drawdown exceeds maximum allowed
+    DrawdownExceeded = 0x06,
+    /// Cooldown period has not elapsed since last execution
+    CooldownNotElapsed = 0x07,
+    /// State snapshot is invalid or missing required fields
+    InvalidStateSnapshot = 0x08,
+    /// Constraint set configuration is invalid
+    InvalidConstraintSet = 0x09,
+    /// Action payload is malformed or invalid
+    InvalidActionPayload = 0x0A,
+}
+
+impl ConstraintViolationReason {
+    /// Get the numeric code for this violation reason.
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+}
+
+/// Detailed constraint violation information.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstraintViolation {
+    /// The specific reason for the violation
+    pub reason: ConstraintViolationReason,
+    /// Index of the action that violated the constraint (if applicable)
+    /// None for global violations (cooldown, drawdown, etc.)
+    pub action_index: Option<usize>,
+}
+
+impl ConstraintViolation {
+    /// Create a new constraint violation for a specific action.
+    pub fn action(reason: ConstraintViolationReason, index: usize) -> Self {
+        Self {
+            reason,
+            action_index: Some(index),
+        }
+    }
+
+    /// Create a new constraint violation for a global constraint.
+    pub fn global(reason: ConstraintViolationReason) -> Self {
+        Self {
+            reason,
+            action_index: None,
+        }
+    }
+}
+
+/// Constraint checking errors (legacy compatibility + detailed violations)
 #[derive(Clone, Debug, PartialEq)]
 pub enum ConstraintError {
-    /// An action violated a constraint
-    ViolatedConstraint { action_index: usize, reason: &'static str },
-    /// Output structure is invalid
+    /// A constraint was violated (detailed)
+    Violation(ConstraintViolation),
+    /// Output structure is invalid (legacy)
     InvalidOutput,
+}
+
+impl From<ConstraintViolation> for ConstraintError {
+    fn from(v: ConstraintViolation) -> Self {
+        ConstraintError::Violation(v)
+    }
 }
 
 impl From<CodecError> for KernelError {

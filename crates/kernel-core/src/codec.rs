@@ -326,9 +326,11 @@ impl CanonicalEncode for KernelJournalV1 {
         buf.extend_from_slice(&self.input_commitment);
         buf.extend_from_slice(&self.action_commitment);
 
-        // ExecutionStatus encoding: Success = 0x01 (0x00 reserved to catch uninitialized memory)
+        // ExecutionStatus encoding: Success = 0x01, Failure = 0x02
+        // 0x00 is reserved to catch uninitialized memory
         buf.push(match self.execution_status {
             ExecutionStatus::Success => 0x01,
+            ExecutionStatus::Failure => 0x02,
         });
 
         debug_assert_eq!(buf.len(), JOURNAL_SIZE);
@@ -411,9 +413,11 @@ impl CanonicalDecode for KernelJournalV1 {
             .map_err(|_| CodecError::UnexpectedEndOfInput)?;
         offset += 32;
 
-        // ExecutionStatus decoding: 0x01 = Success, 0x00 and anything else is invalid
+        // ExecutionStatus decoding: 0x01 = Success, 0x02 = Failure
+        // 0x00 and anything else is invalid
         let execution_status = match bytes[offset] {
             0x01 => ExecutionStatus::Success,
+            0x02 => ExecutionStatus::Failure,
             status => return Err(CodecError::InvalidExecutionStatus(status)),
         };
         offset += 1;

@@ -853,6 +853,505 @@ mod tests {
     }
 
     // ========================================================================
+    // P0.3: Constraint System Tests
+    // ========================================================================
+
+    #[test]
+    fn test_failure_status_encoding() {
+        // Failure encodes as 0x02
+        let journal = KernelJournalV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0; 32],
+            agent_code_hash: [0; 32],
+            constraint_set_hash: [0; 32],
+            input_root: [0; 32],
+            execution_nonce: 0,
+            input_commitment: [0; 32],
+            action_commitment: [0; 32],
+            execution_status: ExecutionStatus::Failure,
+        };
+
+        let encoded = journal.encode().unwrap();
+        // Last byte should be 0x02 for Failure
+        assert_eq!(*encoded.last().unwrap(), 0x02);
+
+        // Round-trip should preserve Failure status
+        let decoded = KernelJournalV1::decode(&encoded).unwrap();
+        assert_eq!(decoded.execution_status, ExecutionStatus::Failure);
+    }
+
+    #[test]
+    fn test_empty_output_commitment_constant() {
+        use constraints::EMPTY_OUTPUT_COMMITMENT;
+
+        // SHA-256 of [0x00, 0x00, 0x00, 0x00] (empty AgentOutput)
+        let empty_output = AgentOutput { actions: vec![] };
+        let encoded = empty_output.encode().unwrap();
+        assert_eq!(encoded, vec![0x00, 0x00, 0x00, 0x00]);
+
+        let commitment = compute_action_commitment(&encoded);
+        assert_eq!(commitment, EMPTY_OUTPUT_COMMITMENT);
+
+        // Verify the constant matches the expected hex value
+        let expected_hex = "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119";
+        let expected = hex_to_bytes32(expected_hex);
+        assert_eq!(EMPTY_OUTPUT_COMMITMENT, expected);
+    }
+
+    #[test]
+    fn test_constraint_violation_reason_codes() {
+        // Verify violation reason codes match specification
+        assert_eq!(ConstraintViolationReason::InvalidOutputStructure.code(), 0x01);
+        assert_eq!(ConstraintViolationReason::UnknownActionType.code(), 0x02);
+        assert_eq!(ConstraintViolationReason::AssetNotWhitelisted.code(), 0x03);
+        assert_eq!(ConstraintViolationReason::PositionTooLarge.code(), 0x04);
+        assert_eq!(ConstraintViolationReason::LeverageTooHigh.code(), 0x05);
+        assert_eq!(ConstraintViolationReason::DrawdownExceeded.code(), 0x06);
+        assert_eq!(ConstraintViolationReason::CooldownNotElapsed.code(), 0x07);
+        assert_eq!(ConstraintViolationReason::InvalidStateSnapshot.code(), 0x08);
+        assert_eq!(ConstraintViolationReason::InvalidConstraintSet.code(), 0x09);
+        assert_eq!(ConstraintViolationReason::InvalidActionPayload.code(), 0x0A);
+    }
+
+    #[test]
+    fn test_kernel_main_success_status() {
+        // Normal execution should produce Success status
+        let input = make_input(vec![1, 2, 3]);
+        let input_bytes = input.encode().unwrap();
+
+        let journal_bytes = kernel_main(&input_bytes).unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+    }
+
+    #[test]
+    fn test_kernel_main_with_constraints_success() {
+        use constraints::ConstraintSetV1;
+        use kernel_guest::kernel_main_with_constraints;
+
+        let input = make_input(vec![1, 2, 3]);
+        let input_bytes = input.encode().unwrap();
+        let constraints = ConstraintSetV1::default();
+
+        let journal_bytes = kernel_main_with_constraints(&input_bytes, &constraints).unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+    }
+
+    #[test]
+    fn test_constraint_set_default_values() {
+        use constraints::ConstraintSetV1;
+
+        let constraints = ConstraintSetV1::default();
+
+        assert_eq!(constraints.version, 1);
+        assert_eq!(constraints.max_position_notional, u64::MAX);
+        assert_eq!(constraints.max_leverage_bps, 100_000); // 10x
+        assert_eq!(constraints.max_drawdown_bps, 10_000);  // 100%
+        assert_eq!(constraints.cooldown_seconds, 0);
+        assert_eq!(constraints.max_actions_per_output, MAX_ACTIONS_PER_OUTPUT as u32);
+        assert_eq!(constraints.asset_whitelist_root, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_state_snapshot_decoding() {
+        use constraints::StateSnapshotV1;
+
+        // Valid snapshot
+        let mut snapshot_bytes = Vec::new();
+        snapshot_bytes.extend_from_slice(&1u32.to_le_bytes());        // version
+        snapshot_bytes.extend_from_slice(&1000u64.to_le_bytes());     // last_execution_ts
+        snapshot_bytes.extend_from_slice(&2000u64.to_le_bytes());     // current_ts
+        snapshot_bytes.extend_from_slice(&100_000u64.to_le_bytes());  // current_equity
+        snapshot_bytes.extend_from_slice(&110_000u64.to_le_bytes());  // peak_equity
+
+        let snapshot = StateSnapshotV1::decode(&snapshot_bytes).unwrap();
+        assert_eq!(snapshot.snapshot_version, 1);
+        assert_eq!(snapshot.last_execution_ts, 1000);
+        assert_eq!(snapshot.current_ts, 2000);
+        assert_eq!(snapshot.current_equity, 100_000);
+        assert_eq!(snapshot.peak_equity, 110_000);
+    }
+
+    #[test]
+    fn test_state_snapshot_decoding_too_short() {
+        use constraints::StateSnapshotV1;
+
+        // Too short - should return None
+        let short_bytes = vec![1, 2, 3];
+        assert!(StateSnapshotV1::decode(&short_bytes).is_none());
+    }
+
+    #[test]
+    fn test_state_snapshot_decoding_wrong_version() {
+        use constraints::StateSnapshotV1;
+
+        // Wrong version
+        let mut bad_version = Vec::new();
+        bad_version.extend_from_slice(&2u32.to_le_bytes()); // version = 2 (invalid)
+        bad_version.extend_from_slice(&[0u8; 32]);          // pad to 36 bytes
+
+        assert!(StateSnapshotV1::decode(&bad_version).is_none());
+    }
+
+    #[test]
+    fn test_enforce_constraints_echo_action() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        let input = make_input(vec![]);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
+                target: [0x11; 32],
+                payload: vec![1, 2, 3],
+            }],
+        };
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_enforce_constraints_unknown_action_type() {
+        use constraints::{enforce_constraints, ConstraintSetV1};
+
+        let input = make_input(vec![]);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: 0xFFFFFFFF, // Unknown type
+                target: [0x11; 32],
+                payload: vec![],
+            }],
+        };
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::UnknownActionType);
+        assert_eq!(violation.action_index, Some(0));
+    }
+
+    #[test]
+    fn test_enforce_constraints_too_many_actions() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        let input = make_input(vec![]);
+        let output = AgentOutput {
+            actions: vec![
+                ActionV1 {
+                    action_type: ACTION_TYPE_ECHO,
+                    target: [0x11; 32],
+                    payload: vec![1],
+                };
+                65 // 65 actions, max is 64
+            ],
+        };
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::InvalidOutputStructure);
+    }
+
+    #[test]
+    fn test_enforce_constraints_position_too_large() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_OPEN_POSITION};
+
+        let input = make_input(vec![]);
+
+        // Build OpenPosition payload
+        let mut payload = Vec::with_capacity(45);
+        payload.extend_from_slice(&[0x42; 32]);                  // asset_id
+        payload.extend_from_slice(&1_000_001u64.to_le_bytes());  // notional (exceeds limit)
+        payload.extend_from_slice(&10_000u32.to_le_bytes());     // leverage_bps (1x)
+        payload.push(0);                                          // direction
+
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_OPEN_POSITION,
+                target: [0x22; 32],
+                payload,
+            }],
+        };
+
+        let constraints = ConstraintSetV1 {
+            max_position_notional: 1_000_000,
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::PositionTooLarge);
+    }
+
+    #[test]
+    fn test_enforce_constraints_leverage_too_high() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_OPEN_POSITION};
+
+        let input = make_input(vec![]);
+
+        // Build OpenPosition payload with 10x leverage
+        let mut payload = Vec::with_capacity(45);
+        payload.extend_from_slice(&[0x42; 32]);               // asset_id
+        payload.extend_from_slice(&1_000u64.to_le_bytes());   // notional
+        payload.extend_from_slice(&100_000u32.to_le_bytes()); // leverage_bps (10x)
+        payload.push(0);                                       // direction
+
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_OPEN_POSITION,
+                target: [0x22; 32],
+                payload,
+            }],
+        };
+
+        let constraints = ConstraintSetV1 {
+            max_leverage_bps: 50_000, // 5x max
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::LeverageTooHigh);
+    }
+
+    #[test]
+    fn test_enforce_constraints_cooldown_not_elapsed() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        // Create input with state snapshot
+        let mut snapshot_bytes = Vec::new();
+        snapshot_bytes.extend_from_slice(&1u32.to_le_bytes());        // version
+        snapshot_bytes.extend_from_slice(&1000u64.to_le_bytes());     // last_execution_ts
+        snapshot_bytes.extend_from_slice(&1030u64.to_le_bytes());     // current_ts (30s later)
+        snapshot_bytes.extend_from_slice(&100_000u64.to_le_bytes());  // current_equity
+        snapshot_bytes.extend_from_slice(&100_000u64.to_le_bytes());  // peak_equity
+
+        let input = make_input(snapshot_bytes);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
+                target: [0x11; 32],
+                payload: vec![1],
+            }],
+        };
+
+        let constraints = ConstraintSetV1 {
+            cooldown_seconds: 60, // 60s cooldown
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::CooldownNotElapsed);
+        assert_eq!(violation.action_index, None); // Global constraint
+    }
+
+    #[test]
+    fn test_enforce_constraints_drawdown_exceeded() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        // Create input with state snapshot showing 30% drawdown
+        let mut snapshot_bytes = Vec::new();
+        snapshot_bytes.extend_from_slice(&1u32.to_le_bytes());        // version
+        snapshot_bytes.extend_from_slice(&1000u64.to_le_bytes());     // last_execution_ts
+        snapshot_bytes.extend_from_slice(&2000u64.to_le_bytes());     // current_ts
+        snapshot_bytes.extend_from_slice(&70_000u64.to_le_bytes());   // current_equity (70%)
+        snapshot_bytes.extend_from_slice(&100_000u64.to_le_bytes());  // peak_equity
+
+        let input = make_input(snapshot_bytes);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
+                target: [0x11; 32],
+                payload: vec![1],
+            }],
+        };
+
+        let constraints = ConstraintSetV1 {
+            max_drawdown_bps: 2_000, // 20% max drawdown
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::DrawdownExceeded);
+        assert_eq!(violation.action_index, None); // Global constraint
+    }
+
+    #[test]
+    fn test_enforce_constraints_invalid_payload() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_OPEN_POSITION};
+
+        let input = make_input(vec![]);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_OPEN_POSITION,
+                target: [0x22; 32],
+                payload: vec![1, 2, 3], // Too short for OpenPosition (needs 45 bytes)
+            }],
+        };
+
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::InvalidActionPayload);
+    }
+
+    #[test]
+    fn test_journal_failure_has_empty_commitment() {
+        use constraints::EMPTY_OUTPUT_COMMITMENT;
+
+        // Create a journal with Failure status
+        let journal = KernelJournalV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xaa; 32],
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 1,
+            input_commitment: [0xdd; 32],
+            action_commitment: EMPTY_OUTPUT_COMMITMENT, // On failure
+            execution_status: ExecutionStatus::Failure,
+        };
+
+        // Verify round-trip preserves all fields
+        let encoded = journal.encode().unwrap();
+        let decoded = KernelJournalV1::decode(&encoded).unwrap();
+
+        assert_eq!(decoded.execution_status, ExecutionStatus::Failure);
+        assert_eq!(decoded.action_commitment, EMPTY_OUTPUT_COMMITMENT);
+    }
+
+    // ========================================================================
+    // P0.3: Missing Snapshot Safety Tests
+    // ========================================================================
+
+    #[test]
+    fn test_missing_snapshot_with_cooldown_enabled_fails() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        // No snapshot provided (empty opaque_agent_inputs)
+        let input = make_input(vec![]);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
+                target: [0x11; 32],
+                payload: vec![1],
+            }],
+        };
+
+        // Enable cooldown constraint
+        let constraints = ConstraintSetV1 {
+            cooldown_seconds: 60,  // Cooldown enabled
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::InvalidStateSnapshot);
+        assert_eq!(violation.action_index, None); // Global constraint
+    }
+
+    #[test]
+    fn test_missing_snapshot_with_drawdown_enabled_fails() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        // No snapshot provided (empty opaque_agent_inputs)
+        let input = make_input(vec![]);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
+                target: [0x11; 32],
+                payload: vec![1],
+            }],
+        };
+
+        // Enable drawdown constraint (< 100%)
+        let constraints = ConstraintSetV1 {
+            max_drawdown_bps: 2_000,  // 20% max drawdown (enabled)
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(violation.reason, ConstraintViolationReason::InvalidStateSnapshot);
+        assert_eq!(violation.action_index, None); // Global constraint
+    }
+
+    #[test]
+    fn test_missing_snapshot_with_disabled_constraints_passes() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        // No snapshot provided (empty opaque_agent_inputs)
+        let input = make_input(vec![]);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
+                target: [0x11; 32],
+                payload: vec![1],
+            }],
+        };
+
+        // Both cooldown and drawdown disabled (default values)
+        let constraints = ConstraintSetV1 {
+            cooldown_seconds: 0,       // Disabled
+            max_drawdown_bps: 10_000,  // 100% = disabled
+            ..ConstraintSetV1::default()
+        };
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_drawdown_with_equity_growth_passes() {
+        use constraints::{enforce_constraints, ConstraintSetV1, ACTION_TYPE_ECHO};
+
+        // Create input with state snapshot where current_equity > peak_equity
+        let mut snapshot_bytes = Vec::new();
+        snapshot_bytes.extend_from_slice(&1u32.to_le_bytes());        // version
+        snapshot_bytes.extend_from_slice(&1000u64.to_le_bytes());     // last_execution_ts
+        snapshot_bytes.extend_from_slice(&2000u64.to_le_bytes());     // current_ts
+        snapshot_bytes.extend_from_slice(&120_000u64.to_le_bytes());  // current_equity (120% of peak)
+        snapshot_bytes.extend_from_slice(&100_000u64.to_le_bytes());  // peak_equity
+
+        let input = make_input(snapshot_bytes);
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
+                target: [0x11; 32],
+                payload: vec![1],
+            }],
+        };
+
+        // Enable strict drawdown constraint
+        let constraints = ConstraintSetV1 {
+            max_drawdown_bps: 500,  // 5% max drawdown (strict)
+            ..ConstraintSetV1::default()
+        };
+
+        // Should pass because current_equity > peak_equity means 0 drawdown
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_ok());
+    }
+
+    // ========================================================================
     // Test Helpers
     // ========================================================================
 

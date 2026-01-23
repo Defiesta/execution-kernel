@@ -1,0 +1,415 @@
+# Constraint System Specification
+
+This document specifies the constraint enforcement system for the kernel protocol (P0.3).
+Constraints are enforced inside the guest (zkVM) and are unskippable.
+
+## Overview
+
+The constraint system validates agent-proposed actions against economic safety rules before commitment. Key properties:
+
+1. **Unskippable**: Constraints are enforced after every agent execution, unconditionally
+2. **Deterministic**: Same inputs always produce same validation results
+3. **Provable**: Constraint violations result in a valid proof with Failure status
+4. **Auditable**: Clear error codes identify which constraint was violated
+
+---
+
+## Failure Semantics
+
+When a constraint is violated:
+
+1. `execution_status` is set to `Failure` (0x02)
+2. `action_commitment` is computed over an **empty AgentOutput** (zero actions)
+3. A valid `KernelJournalV1` is always produced
+4. The proof is still valid, but verifiers/contracts should reject state transitions
+
+This design ensures:
+- Constraint violations are provable and verifiable on-chain
+- No ambiguity between "success with zero actions" and "constraint failure"
+- Host and prover behavior is consistent
+
+---
+
+## Action Types
+
+### Supported Action Types (P0.3)
+
+| Code | Name | Description |
+|------|------|-------------|
+| `0x00000001` | `Echo` | Echo/test action (TrivialAgent) |
+| `0x00000002` | `OpenPosition` | Open a new trading position |
+| `0x00000003` | `ClosePosition` | Close an existing position |
+| `0x00000004` | `AdjustPosition` | Modify position size or leverage |
+| `0x00000005` | `Swap` | Asset swap/exchange |
+
+Any action type not in this list is **invalid** and causes a constraint violation.
+
+### Action Payload Schemas
+
+#### Echo (0x00000001)
+
+No schema enforcement. Payload is opaque bytes.
+
+#### OpenPosition (0x00000002)
+
+```
+Offset | Field         | Type      | Size | Description
+-------|---------------|-----------|------|-------------
+0      | asset_id      | [u8; 32]  | 32   | Asset identifier
+32     | notional      | u64       | 8    | Position size in base units
+40     | leverage_bps  | u32       | 4    | Leverage in basis points (10000 = 1x)
+44     | direction     | u8        | 1    | 0 = Long, 1 = Short
+```
+
+Total: 45 bytes minimum
+
+#### ClosePosition (0x00000003)
+
+```
+Offset | Field         | Type      | Size | Description
+-------|---------------|-----------|------|-------------
+0      | position_id   | [u8; 32]  | 32   | Position identifier to close
+```
+
+Total: 32 bytes
+
+#### AdjustPosition (0x00000004)
+
+```
+Offset | Field         | Type      | Size | Description
+-------|---------------|-----------|------|-------------
+0      | position_id   | [u8; 32]  | 32   | Position identifier
+32     | new_notional  | u64       | 8    | New position size (0 = unchanged)
+40     | new_leverage  | u32       | 4    | New leverage in bps (0 = unchanged)
+```
+
+Total: 44 bytes
+
+#### Swap (0x00000005)
+
+```
+Offset | Field         | Type      | Size | Description
+-------|---------------|-----------|------|-------------
+0      | from_asset    | [u8; 32]  | 32   | Source asset identifier
+32     | to_asset      | [u8; 32]  | 32   | Destination asset identifier
+64     | amount        | u64       | 8    | Amount to swap
+```
+
+Total: 72 bytes
+
+---
+
+## Constraint Set
+
+### ConstraintSetV1 Schema
+
+The constraint set defines the economic safety parameters. For P0.3, constraints are embedded in the guest binary and referenced by `constraint_set_hash`.
+
+```
+Offset | Field                   | Type      | Size | Description
+-------|-------------------------|-----------|------|-------------
+0      | version                 | u32       | 4    | Must be 1
+4      | max_position_notional   | u64       | 8    | Maximum position size
+12     | max_leverage_bps        | u32       | 4    | Maximum leverage (basis points)
+16     | max_drawdown_bps        | u32       | 4    | Maximum drawdown (basis points)
+20     | cooldown_seconds        | u32       | 4    | Minimum seconds between executions
+24     | max_actions_per_output  | u32       | 4    | Maximum actions per output
+28     | asset_whitelist_root    | [u8; 32]  | 32   | Merkle root of whitelisted assets
+```
+
+Total: 60 bytes
+
+### Default Constraint Set (P0.3)
+
+For P0.3, a permissive default constraint set is used:
+
+```rust
+ConstraintSetV1 {
+    version: 1,
+    max_position_notional: u64::MAX,      // No position size limit
+    max_leverage_bps: 100_000,            // 10x max leverage
+    max_drawdown_bps: 10_000,             // 100% drawdown allowed (disabled)
+    cooldown_seconds: 0,                  // No cooldown
+    max_actions_per_output: 64,           // Match protocol max
+    asset_whitelist_root: [0u8; 32],      // Zero = all assets allowed
+}
+```
+
+---
+
+## State Snapshot
+
+To enforce cooldown and drawdown constraints, the guest requires a state snapshot. This is provided in the `opaque_agent_inputs` field with the following prefix structure:
+
+### StateSnapshotV1 Schema
+
+```
+Offset | Field                | Type      | Size | Description
+-------|----------------------|-----------|------|-------------
+0      | snapshot_version     | u32       | 4    | Must be 1
+4      | last_execution_ts    | u64       | 8    | Timestamp of last execution
+12     | current_ts           | u64       | 8    | Current timestamp (from input)
+20     | current_equity       | u64       | 8    | Current portfolio equity
+28     | peak_equity          | u64       | 8    | Peak portfolio equity
+```
+
+Total: 36 bytes
+
+### Snapshot Parsing Rules
+
+If `opaque_agent_inputs` is shorter than 36 bytes:
+
+```
+IF constraint_set.cooldown_seconds > 0:
+    Violation: InvalidStateSnapshot (0x08)
+IF constraint_set.max_drawdown_bps < 10_000:
+    Violation: InvalidStateSnapshot (0x08)
+ELSE:
+    snapshot is considered empty, global checks skipped
+```
+
+**Rationale:** When cooldown or drawdown constraints are enabled, they are safety-critical. Allowing missing snapshots would bypass these protections.
+
+---
+
+## Constraint Rules
+
+### Evaluation Order
+
+Constraints are evaluated in the following deterministic order:
+
+1. **Output structure validation**
+   - `action_count` <= `max_actions_per_output`
+   - Each action payload size <= `MAX_ACTION_PAYLOAD_BYTES`
+
+2. **Per-action validation** (for each action in order)
+   - Action type must be known/supported
+   - Payload must match expected schema for action type
+   - Asset whitelist check (if applicable)
+   - Position size check (if applicable)
+   - Leverage check (if applicable)
+
+3. **Global invariants**
+   - Cooldown check (if state snapshot present)
+   - Drawdown check (if state snapshot present)
+
+Evaluation stops at the first violation.
+
+### Rule Details
+
+#### Output Structure (Rule 1)
+
+```
+REQUIRE: output.actions.len() <= constraint_set.max_actions_per_output
+REQUIRE: for all actions: action.payload.len() <= MAX_ACTION_PAYLOAD_BYTES
+```
+
+Violation: `InvalidOutputStructure` (0x01)
+
+#### Unknown Action Type (Rule 2a)
+
+```
+REQUIRE: action.action_type IN supported_action_types
+```
+
+Violation: `UnknownActionType` (0x02)
+
+#### Asset Whitelist (Rule 2b)
+
+```
+IF constraint_set.asset_whitelist_root != [0; 32]:
+    REQUIRE: asset_id == asset_whitelist_root (exact match)
+```
+
+Violation: `AssetNotWhitelisted` (0x03)
+
+**P0.3 Limitation:** Only single-asset whitelist is supported via exact hash match.
+Future versions may support multi-asset whitelists via Merkle proofs.
+
+When `asset_whitelist_root == [0; 32]`, all assets are allowed.
+
+#### Position Size (Rule 2c)
+
+For OpenPosition and AdjustPosition:
+
+```
+REQUIRE: notional <= constraint_set.max_position_notional
+```
+
+Violation: `PositionTooLarge` (0x04)
+
+#### Leverage (Rule 2d)
+
+For OpenPosition and AdjustPosition:
+
+```
+REQUIRE: leverage_bps <= constraint_set.max_leverage_bps
+```
+
+Violation: `LeverageTooHigh` (0x05)
+
+#### Drawdown (Rule 3a)
+
+```
+IF constraint_set.max_drawdown_bps < 10_000:
+    IF state_snapshot.peak_equity == 0:
+        Violation: InvalidStateSnapshot (0x08)
+
+    # Handle equity growth (current > peak) as 0 drawdown
+    drawdown = if current_equity >= peak_equity { 0 } else { peak_equity - current_equity }
+    drawdown_bps = drawdown * 10000 / peak_equity
+
+    REQUIRE: drawdown_bps <= constraint_set.max_drawdown_bps
+```
+
+Violation: `DrawdownExceeded` (0x06)
+
+**Note:** When `current_equity > peak_equity` (equity growth), the drawdown is treated as 0. This uses saturating subtraction to prevent underflow.
+
+#### Cooldown (Rule 3b)
+
+```
+IF constraint_set.cooldown_seconds > 0 AND state_snapshot is present:
+    REQUIRE: current_ts >= last_execution_ts + constraint_set.cooldown_seconds
+```
+
+Violation: `CooldownNotElapsed` (0x07)
+
+---
+
+## Violation Reason Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| 0x01 | `InvalidOutputStructure` | Too many actions or payload too large |
+| 0x02 | `UnknownActionType` | Action type not recognized |
+| 0x03 | `AssetNotWhitelisted` | Asset not in allowed list |
+| 0x04 | `PositionTooLarge` | Position exceeds size limit |
+| 0x05 | `LeverageTooHigh` | Leverage exceeds limit |
+| 0x06 | `DrawdownExceeded` | Portfolio drawdown too high |
+| 0x07 | `CooldownNotElapsed` | Too soon since last execution |
+| 0x08 | `InvalidStateSnapshot` | Snapshot malformed or invalid |
+| 0x09 | `InvalidConstraintSet` | Constraint configuration invalid |
+| 0x0A | `InvalidActionPayload` | Payload doesn't match schema |
+
+---
+
+## Empty Output Commitment
+
+On constraint failure, the `action_commitment` is computed over an empty `AgentOutput`:
+
+```
+empty_output = AgentOutput { actions: vec![] }
+empty_encoded = encode(empty_output)  // = [0x00, 0x00, 0x00, 0x00] (action_count = 0)
+action_commitment = SHA-256(empty_encoded)
+```
+
+The constant empty output commitment is:
+```
+df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119
+```
+
+This is the SHA-256 hash of `[0x00, 0x00, 0x00, 0x00]`.
+
+---
+
+## Determinism Requirements
+
+The constraint engine MUST be fully deterministic:
+
+- **No host time**: Use `current_ts` from state snapshot
+- **No randomness**: All decisions based on input data only
+- **No floating point**: Use integer arithmetic with explicit rounding
+- **Bounded iteration**: All loops have fixed bounds
+- **Stable ordering**: Evaluate actions in input order
+
+---
+
+## Test Vector Format
+
+Test vectors are JSON files in `tests/vectors/constraints/`:
+
+```json
+{
+  "name": "test_case_name",
+  "description": "Human-readable description",
+  "constraint_set": {
+    "version": 1,
+    "max_position_notional": 1000000,
+    "max_leverage_bps": 50000,
+    "max_drawdown_bps": 2000,
+    "cooldown_seconds": 60,
+    "max_actions_per_output": 64,
+    "asset_whitelist_root": "0000...0000"
+  },
+  "state_snapshot": {
+    "snapshot_version": 1,
+    "last_execution_ts": 1000,
+    "current_ts": 1100,
+    "current_equity": 100000,
+    "peak_equity": 100000
+  },
+  "proposed_actions": [
+    {
+      "action_type": 2,
+      "target": "1111...1111",
+      "payload_hex": "..."
+    }
+  ],
+  "expected": {
+    "status": "Success",
+    "action_commitment": "...",
+    "violation_reason": null
+  }
+}
+```
+
+For failure cases:
+
+```json
+{
+  "expected": {
+    "status": "Failure",
+    "action_commitment": "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119",
+    "violation_reason": "LeverageTooHigh",
+    "violation_action_index": 0
+  }
+}
+```
+
+---
+
+## Integration with Kernel
+
+### kernel_main Flow (P0.3)
+
+```
+1. Decode KernelInputV1
+2. Validate versions
+3. Compute input_commitment
+4. Execute agent → proposed_output
+5. Enforce constraints:
+   IF enforce_constraints(input, proposed_output) == Ok(validated):
+       output = validated
+       status = Success
+   ELSE:
+       output = AgentOutput { actions: [] }
+       status = Failure
+6. Compute action_commitment over output
+7. Construct and return KernelJournalV1
+```
+
+The journal is **always** produced, even on constraint failure.
+
+---
+
+## Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `ACTION_TYPE_ECHO` | 0x00000001 | Echo/test action |
+| `ACTION_TYPE_OPEN_POSITION` | 0x00000002 | Open position |
+| `ACTION_TYPE_CLOSE_POSITION` | 0x00000003 | Close position |
+| `ACTION_TYPE_ADJUST_POSITION` | 0x00000004 | Adjust position |
+| `ACTION_TYPE_SWAP` | 0x00000005 | Asset swap |
+| `EMPTY_OUTPUT_COMMITMENT` | `df3f61...` | SHA-256 of empty output |
