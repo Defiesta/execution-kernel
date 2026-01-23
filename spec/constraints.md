@@ -178,15 +178,11 @@ Total: 36 bytes
 
 ### Snapshot Parsing Rules
 
-If `opaque_agent_inputs` is shorter than 36 bytes:
-
 ```
-IF constraint_set.cooldown_seconds > 0:
+IF snapshot is missing AND (constraint_set.cooldown_seconds > 0 OR constraint_set.max_drawdown_bps < 10_000):
     Violation: InvalidStateSnapshot (0x08)
-IF constraint_set.max_drawdown_bps < 10_000:
-    Violation: InvalidStateSnapshot (0x08)
-ELSE:
-    snapshot is considered empty, global checks skipped
+ELSE IF snapshot is missing:
+    snapshot is considered empty; global checks are skipped
 ```
 
 **Rationale:** When cooldown or drawdown constraints are enabled, they are safety-critical. Allowing missing snapshots would bypass these protections.
@@ -296,9 +292,11 @@ Violation: `DrawdownExceeded` (0x06)
 
 **Drawdown Disabled Rule:** Drawdown checks are disabled if and only if `max_drawdown_bps == 10_000` (100%). Any value less than 10,000 enables drawdown enforcement. This is consistent with the snapshot parsing rules above.
 
-**Note:** When `current_equity > peak_equity` (equity growth), the drawdown is treated as 0. This uses saturating subtraction to prevent underflow.
+**Note:** When `current_equity >= peak_equity`, drawdown is defined as 0 (no drawdown). This prevents underflow and makes the rule deterministic.
 
 #### Cooldown (Rule 3b)
+
+**Snapshot Present:** `state_snapshot is present` means the snapshot prefix decodes successfully (`snapshot_version == 1` and `opaque_agent_inputs.len() >= 36`).
 
 ```
 IF constraint_set.cooldown_seconds > 0 AND state_snapshot is present:
@@ -311,6 +309,8 @@ IF constraint_set.cooldown_seconds > 0 AND state_snapshot is present:
 Violation: `CooldownNotElapsed` (0x07)
 
 **Overflow Protection (P0.3):** If `last_execution_ts + cooldown_seconds` overflows, the snapshot is considered invalid. This prevents maliciously large timestamp values from bypassing cooldown checks via saturation.
+
+**Timestamp Arithmetic:** All timestamp arithmetic is performed in `u64`; overflow is treated as `InvalidStateSnapshot`.
 
 ---
 
