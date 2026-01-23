@@ -61,7 +61,9 @@ Offset | Field         | Type      | Size | Description
 44     | direction     | u8        | 1    | 0 = Long, 1 = Short
 ```
 
-Total: 45 bytes minimum
+**Total: 45 bytes (exact)**
+
+P0.3 requires exact payload length. Trailing bytes are rejected to prevent encoding malleability.
 
 #### ClosePosition (0x00000003)
 
@@ -71,7 +73,9 @@ Offset | Field         | Type      | Size | Description
 0      | position_id   | [u8; 32]  | 32   | Position identifier to close
 ```
 
-Total: 32 bytes
+**Total: 32 bytes (exact)**
+
+P0.3 requires exact payload length. Trailing bytes are rejected to prevent encoding malleability.
 
 #### AdjustPosition (0x00000004)
 
@@ -83,7 +87,9 @@ Offset | Field         | Type      | Size | Description
 40     | new_leverage  | u32       | 4    | New leverage in bps (0 = unchanged)
 ```
 
-Total: 44 bytes
+**Total: 44 bytes (exact)**
+
+P0.3 requires exact payload length. Trailing bytes are rejected to prevent encoding malleability.
 
 #### Swap (0x00000005)
 
@@ -95,7 +101,9 @@ Offset | Field         | Type      | Size | Description
 64     | amount        | u64       | 8    | Amount to swap
 ```
 
-Total: 72 bytes
+**Total: 72 bytes (exact)**
+
+P0.3 requires exact payload length. Trailing bytes are rejected to prevent encoding malleability.
 
 ---
 
@@ -114,10 +122,19 @@ Offset | Field                   | Type      | Size | Description
 16     | max_drawdown_bps        | u32       | 4    | Maximum drawdown (basis points)
 20     | cooldown_seconds        | u32       | 4    | Minimum seconds between executions
 24     | max_actions_per_output  | u32       | 4    | Maximum actions per output
-28     | asset_whitelist_root    | [u8; 32]  | 32   | Merkle root of whitelisted assets
+28     | allowed_asset_id        | [u8; 32]  | 32   | Single allowed asset ID (P0.3)
 ```
 
 Total: 60 bytes
+
+### Constraint Set Validation (P0.3)
+
+The following invariants are validated:
+- `version` must be 1
+- `max_actions_per_output` must be ≤ 64 (protocol maximum)
+- `max_drawdown_bps` must be ≤ 10,000 (100%)
+- `max_leverage_bps` can be 0 (would reject all leveraged positions)
+- `cooldown_seconds` has no upper bound (operator choice)
 
 ### Default Constraint Set (P0.3)
 
@@ -131,7 +148,7 @@ ConstraintSetV1 {
     max_drawdown_bps: 10_000,             // 100% drawdown allowed (disabled)
     cooldown_seconds: 0,                  // No cooldown
     max_actions_per_output: 64,           // Match protocol max
-    asset_whitelist_root: [0u8; 32],      // Zero = all assets allowed
+    allowed_asset_id: [0u8; 32],          // Zero = all assets allowed
 }
 ```
 
@@ -169,6 +186,8 @@ ELSE:
 ```
 
 **Rationale:** When cooldown or drawdown constraints are enabled, they are safety-critical. Allowing missing snapshots would bypass these protections.
+
+**Snapshot Optionality (P0.3):** Snapshot is optional unless cooldown or drawdown constraints are enabled. Malformed snapshots with wrong version are treated as missing. This means a wrong-version snapshot combined with disabled cooldown/drawdown will pass validation.
 
 ---
 
@@ -217,16 +236,17 @@ Violation: `UnknownActionType` (0x02)
 #### Asset Whitelist (Rule 2b)
 
 ```
-IF constraint_set.asset_whitelist_root != [0; 32]:
-    REQUIRE: asset_id == asset_whitelist_root (exact match)
+IF constraint_set.allowed_asset_id != [0; 32]:
+    REQUIRE: asset_id == allowed_asset_id (exact match)
 ```
 
 Violation: `AssetNotWhitelisted` (0x03)
 
-**P0.3 Limitation:** Only single-asset whitelist is supported via exact hash match.
-Future versions may support multi-asset whitelists via Merkle proofs.
+**P0.3 Semantics:** Single-asset whitelist via exact ID match.
+- If `allowed_asset_id == [0; 32]`, all assets are allowed
+- If `allowed_asset_id != [0; 32]`, only the exact matching asset_id is allowed
 
-When `asset_whitelist_root == [0; 32]`, all assets are allowed.
+Future versions may support multi-asset whitelists via Merkle proofs.
 
 #### Position Size (Rule 2c)
 
@@ -270,10 +290,15 @@ Violation: `DrawdownExceeded` (0x06)
 
 ```
 IF constraint_set.cooldown_seconds > 0 AND state_snapshot is present:
-    REQUIRE: current_ts >= last_execution_ts + constraint_set.cooldown_seconds
+    required_ts = last_execution_ts + cooldown_seconds
+    IF required_ts overflows (u64):
+        Violation: InvalidStateSnapshot (0x08)
+    REQUIRE: current_ts >= required_ts
 ```
 
 Violation: `CooldownNotElapsed` (0x07)
+
+**Overflow Protection (P0.3):** If `last_execution_ts + cooldown_seconds` overflows, the snapshot is considered invalid. This prevents maliciously large timestamp values from bypassing cooldown checks via saturation.
 
 ---
 
@@ -313,6 +338,16 @@ This is the SHA-256 hash of `[0x00, 0x00, 0x00, 0x00]`.
 
 ---
 
+## Target Field (P0.3 Limitation)
+
+The `action.target` field is **not validated** by the constraint engine in P0.3. This field is passed through to executor contracts without any constraint enforcement.
+
+**Security Note:** Executor contracts are responsible for validating the `target` field according to their own rules. The constraint system does not restrict which targets can be called.
+
+Future versions may add per-action-type target validation (e.g., only allowing specific contract addresses for swaps).
+
+---
+
 ## Determinism Requirements
 
 The constraint engine MUST be fully deterministic:
@@ -340,7 +375,7 @@ Test vectors are JSON files in `tests/vectors/constraints/`:
     "max_drawdown_bps": 2000,
     "cooldown_seconds": 60,
     "max_actions_per_output": 64,
-    "asset_whitelist_root": "0000...0000"
+    "allowed_asset_id": "0000...0000"
   },
   "state_snapshot": {
     "snapshot_version": 1,

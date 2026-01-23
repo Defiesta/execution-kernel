@@ -57,8 +57,14 @@ pub struct ConstraintSetV1 {
     pub cooldown_seconds: u32,
     /// Maximum actions per output
     pub max_actions_per_output: u32,
-    /// Merkle root of whitelisted assets (zero = all allowed)
-    pub asset_whitelist_root: [u8; 32],
+    /// Single allowed asset ID (zero = all assets allowed)
+    ///
+    /// In P0.3, this field supports single-asset whitelist semantics:
+    /// - If zero ([0u8; 32]), all assets are allowed
+    /// - If non-zero, only the exact asset_id matching this value is allowed
+    ///
+    /// Future versions may support multi-asset whitelists via Merkle proofs.
+    pub allowed_asset_id: [u8; 32],
 }
 
 impl Default for ConstraintSetV1 {
@@ -71,7 +77,7 @@ impl Default for ConstraintSetV1 {
             max_drawdown_bps: 10_000,   // 100% (disabled)
             cooldown_seconds: 0,
             max_actions_per_output: MAX_ACTIONS_PER_OUTPUT as u32,
-            asset_whitelist_root: [0u8; 32],  // All assets allowed
+            allowed_asset_id: [0u8; 32],  // All assets allowed
         }
     }
 }
@@ -138,10 +144,15 @@ pub struct OpenPositionPayload {
 }
 
 impl OpenPositionPayload {
-    pub const MIN_SIZE: usize = 45;
+    /// Exact size required for OpenPosition payload (P0.3: strict length enforcement)
+    pub const SIZE: usize = 45;
 
+    /// Decode an OpenPosition payload from bytes.
+    ///
+    /// Returns None if payload length is not exactly SIZE bytes.
+    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
     pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() < Self::MIN_SIZE {
+        if payload.len() != Self::SIZE {
             return None;
         }
         Some(Self {
@@ -160,10 +171,15 @@ pub struct ClosePositionPayload {
 }
 
 impl ClosePositionPayload {
-    pub const MIN_SIZE: usize = 32;
+    /// Exact size required for ClosePosition payload (P0.3: strict length enforcement)
+    pub const SIZE: usize = 32;
 
+    /// Decode a ClosePosition payload from bytes.
+    ///
+    /// Returns None if payload length is not exactly SIZE bytes.
+    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
     pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() < Self::MIN_SIZE {
+        if payload.len() != Self::SIZE {
             return None;
         }
         Some(Self {
@@ -181,10 +197,15 @@ pub struct AdjustPositionPayload {
 }
 
 impl AdjustPositionPayload {
-    pub const MIN_SIZE: usize = 44;
+    /// Exact size required for AdjustPosition payload (P0.3: strict length enforcement)
+    pub const SIZE: usize = 44;
 
+    /// Decode an AdjustPosition payload from bytes.
+    ///
+    /// Returns None if payload length is not exactly SIZE bytes.
+    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
     pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() < Self::MIN_SIZE {
+        if payload.len() != Self::SIZE {
             return None;
         }
         Some(Self {
@@ -204,10 +225,15 @@ pub struct SwapPayload {
 }
 
 impl SwapPayload {
-    pub const MIN_SIZE: usize = 72;
+    /// Exact size required for Swap payload (P0.3: strict length enforcement)
+    pub const SIZE: usize = 72;
 
+    /// Decode a Swap payload from bytes.
+    ///
+    /// Returns None if payload length is not exactly SIZE bytes.
+    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
     pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() < Self::MIN_SIZE {
+        if payload.len() != Self::SIZE {
             return None;
         }
         Some(Self {
@@ -256,12 +282,30 @@ pub fn enforce_constraints(
     proposed: &AgentOutput,
     constraint_set: &ConstraintSetV1,
 ) -> Result<AgentOutput, ConstraintViolation> {
-    // 1. Validate constraint set version
+    // 1. Validate constraint set version and invariants
     if constraint_set.version != 1 {
         return Err(ConstraintViolation::global(
             ConstraintViolationReason::InvalidConstraintSet,
         ));
     }
+
+    // 1b. Validate constraint set invariants
+    // max_actions_per_output must not exceed protocol limit
+    if constraint_set.max_actions_per_output > MAX_ACTIONS_PER_OUTPUT as u32 {
+        return Err(ConstraintViolation::global(
+            ConstraintViolationReason::InvalidConstraintSet,
+        ));
+    }
+
+    // max_drawdown_bps must be <= 10_000 (100%)
+    if constraint_set.max_drawdown_bps > 10_000 {
+        return Err(ConstraintViolation::global(
+            ConstraintViolationReason::InvalidConstraintSet,
+        ));
+    }
+
+    // Note: max_leverage_bps == 0 is valid (would reject all leveraged positions)
+    // Note: cooldown_seconds has no upper bound validation (operator choice)
 
     // 2. Validate output structure
     check_output_structure(proposed, constraint_set)?;
@@ -466,24 +510,21 @@ fn validate_swap(
     Ok(())
 }
 
-/// Check if an asset is whitelisted.
+/// Check if an asset is allowed.
 ///
-/// If whitelist root is all zeros, all assets are allowed.
+/// P0.3 single-asset whitelist semantics:
+/// - If `allowed_asset_id` is zero, all assets are allowed
+/// - If `allowed_asset_id` is non-zero, only exact matches are allowed
+///
+/// Future versions may support multi-asset whitelists via Merkle proofs.
 fn is_asset_whitelisted(asset_id: &[u8; 32], constraint_set: &ConstraintSetV1) -> bool {
-    // Zero whitelist root means all assets are allowed
-    if constraint_set.asset_whitelist_root == [0u8; 32] {
+    // Zero allowed_asset_id means all assets are allowed
+    if constraint_set.allowed_asset_id == [0u8; 32] {
         return true;
     }
 
-    // For P0.3, we use a simple hash comparison.
-    // In future versions, this could be a Merkle proof check.
-    // For now, the asset_id must match the whitelist root exactly
-    // (single-asset whitelist) or we could hash the asset_id and compare.
-    //
-    // Simple implementation: whitelist root is the hash of allowed asset,
-    // or we allow any asset that starts with the first 4 bytes of the root.
-    // For P0.3, just do exact match for simplicity.
-    asset_id == &constraint_set.asset_whitelist_root
+    // P0.3: Exact match required for single-asset whitelist
+    asset_id == &constraint_set.allowed_asset_id
 }
 
 /// Validate global constraints (cooldown, drawdown).
@@ -493,9 +534,14 @@ fn validate_global_constraints(
 ) -> Result<(), ConstraintViolation> {
     // Check cooldown
     if constraint_set.cooldown_seconds > 0 {
+        // Use checked_add to detect maliciously large last_execution_ts values.
+        // Overflow would indicate an invalid snapshot (timestamp cannot be that large).
         let required_ts = snapshot
             .last_execution_ts
-            .saturating_add(constraint_set.cooldown_seconds as u64);
+            .checked_add(constraint_set.cooldown_seconds as u64)
+            .ok_or_else(|| {
+                ConstraintViolation::global(ConstraintViolationReason::InvalidStateSnapshot)
+            })?;
         if snapshot.current_ts < required_ts {
             return Err(ConstraintViolation::global(
                 ConstraintViolationReason::CooldownNotElapsed,
@@ -517,10 +563,11 @@ fn validate_global_constraints(
         let drawdown = snapshot
             .peak_equity
             .saturating_sub(snapshot.current_equity);
+        // SAFETY: peak_equity != 0 is verified above, so division cannot fail
         let drawdown_bps = drawdown
             .saturating_mul(10_000)
             .checked_div(snapshot.peak_equity)
-            .unwrap_or(0);
+            .expect("peak_equity != 0 checked above");
 
         if drawdown_bps > constraint_set.max_drawdown_bps as u64 {
             return Err(ConstraintViolation::global(
