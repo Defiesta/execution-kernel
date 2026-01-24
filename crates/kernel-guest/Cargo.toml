@@ -11,7 +11,10 @@ kernel-sdk = { path = "../kernel-sdk" }
 constraints = { path = "../constraints" }
 example-agent = { path = "../example-agent", optional = true }
 
+# RISC Zero zkVM guest runtime (only needed when building for zkVM)
+risc0-zkvm = { version = "3.0", default-features = false, features = ["std"], optional = true }
+
 [features]
 default = ["example-agent"]
-risc0 = []
+risc0 = ["dep:risc0-zkvm"]
 example-agent = ["dep:example-agent"]

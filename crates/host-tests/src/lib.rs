@@ -3,6 +3,9 @@
 // which must be provided by a linked agent crate.
 extern crate example_agent;
 
+// Re-export the agent code hash for tests to use.
+pub use example_agent::AGENT_CODE_HASH;
+
 #[cfg(test)]
 mod tests {
     use kernel_core::*;
@@ -14,13 +17,38 @@ mod tests {
     use kernel_guest::kernel_main;
     use constraints::EMPTY_OUTPUT_COMMITMENT;
 
-    /// Helper to create a valid KernelInputV1 with default values
+    // Import the agent code hash from the linked example-agent crate.
+    // This is the compile-time constant that the kernel verifies against.
+    use crate::AGENT_CODE_HASH;
+
+    /// Helper to create a valid KernelInputV1 with the correct agent_code_hash.
+    ///
+    /// This uses `AGENT_CODE_HASH` from the linked example-agent crate,
+    /// ensuring the hash verification in kernel_main will pass.
     fn make_input(agent_input: Vec<u8>) -> KernelInputV1 {
         KernelInputV1 {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x42; 32],
-            agent_code_hash: [0xaa; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Correct hash from linked agent
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 1,
+            opaque_agent_inputs: agent_input,
+        }
+    }
+
+    /// Helper to create a KernelInputV1 with a WRONG agent_code_hash.
+    ///
+    /// This uses a dummy hash that will NOT match the linked agent,
+    /// useful for testing hash mismatch scenarios.
+    #[allow(dead_code)]
+    fn make_input_with_wrong_hash(agent_input: Vec<u8>) -> KernelInputV1 {
+        KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xde; 32], // Wrong hash - will fail hash check
             constraint_set_hash: [0xbb; 32],
             input_root: [0xcc; 32],
             execution_nonce: 1,
@@ -349,7 +377,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x11; 32],
-            agent_code_hash: [0x22; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0x33; 32],
             input_root: [0x44; 32],
             execution_nonce: 9999,
@@ -362,7 +390,7 @@ mod tests {
 
         // Verify identity fields are copied to journal
         assert_eq!(journal.agent_id, [0x11; 32]);
-        assert_eq!(journal.agent_code_hash, [0x22; 32]);
+        assert_eq!(journal.agent_code_hash, AGENT_CODE_HASH);
         assert_eq!(journal.constraint_set_hash, [0x33; 32]);
         assert_eq!(journal.input_root, [0x44; 32]);
         assert_eq!(journal.execution_nonce, 9999);
@@ -471,7 +499,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x42; 32],
-            agent_code_hash: [0xaa; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0xbb; 32],
             input_root: [0xcc; 32],
             execution_nonce: 1,
@@ -1785,7 +1813,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x42; 32],
-            agent_code_hash: [0xaa; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0xbb; 32],
             input_root: [0xcc; 32],
             execution_nonce: 1,
@@ -1801,7 +1829,7 @@ mod tests {
 
         // Verify identity fields are preserved
         assert_eq!(journal.agent_id, [0x42; 32]);
-        assert_eq!(journal.agent_code_hash, [0xaa; 32]);
+        assert_eq!(journal.agent_code_hash, AGENT_CODE_HASH);
         assert_eq!(journal.constraint_set_hash, [0xbb; 32]);
         assert_eq!(journal.input_root, [0xcc; 32]);
         assert_eq!(journal.execution_nonce, 1);
@@ -1818,7 +1846,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x42; 32],
-            agent_code_hash: [0xaa; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0xbb; 32],
             input_root: [0xcc; 32],
             execution_nonce: 2,
@@ -1843,7 +1871,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x42; 32],
-            agent_code_hash: [0xaa; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0xbb; 32],
             input_root: [0xcc; 32],
             execution_nonce: 3,
@@ -1868,7 +1896,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x42; 32],
-            agent_code_hash: [0xaa; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0xbb; 32],
             input_root: [0xcc; 32],
             execution_nonce: 4,
@@ -1907,7 +1935,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x11; 32],
-            agent_code_hash: [0x22; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0x33; 32],
             input_root: [0x44; 32],
             execution_nonce: 100,
@@ -1937,7 +1965,7 @@ mod tests {
             protocol_version: PROTOCOL_VERSION,
             kernel_version: KERNEL_VERSION,
             agent_id: [0x42; 32],
-            agent_code_hash: [0xaa; 32],
+            agent_code_hash: AGENT_CODE_HASH, // Must match linked agent
             constraint_set_hash: [0xbb; 32],
             input_root: [0xcc; 32],
             execution_nonce: 5,
@@ -1959,6 +1987,108 @@ mod tests {
 
         // On failure, action commitment should be the empty output commitment
         assert_eq!(journal.action_commitment, EMPTY_OUTPUT_COMMITMENT);
+    }
+
+    // ========================================================================
+    // P0.5: Agent Code Hash Binding Tests
+    // ========================================================================
+
+    #[test]
+    fn test_agent_code_hash_match_passes() {
+        // When agent_code_hash matches the linked agent, execution succeeds.
+        // This test verifies that the hash binding works correctly.
+        let input = make_input(vec![1, 2, 3, 4, 5]); // Echo input (make_input uses correct hash)
+
+        let input_bytes = input.encode().unwrap();
+        let result = kernel_main(&input_bytes);
+
+        // Should succeed because hash matches
+        assert!(result.is_ok(), "Expected success but got: {:?}", result);
+
+        let journal_bytes = result.unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        // Verify SUCCESS status
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+
+        // Verify the journal contains the correct agent_code_hash
+        assert_eq!(journal.agent_code_hash, AGENT_CODE_HASH);
+    }
+
+    #[test]
+    fn test_agent_code_hash_mismatch_fails() {
+        // When agent_code_hash does NOT match the linked agent, execution fails.
+        // This test verifies that the kernel rejects mismatched hashes.
+        let wrong_hash = [0xde; 32]; // Wrong hash
+
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: wrong_hash, // WRONG hash
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 1,
+            opaque_agent_inputs: vec![1, 2, 3], // Echo input
+        };
+
+        let input_bytes = input.encode().unwrap();
+        let result = kernel_main(&input_bytes);
+
+        // Should fail with AgentCodeHashMismatch
+        assert!(result.is_err(), "Expected error but got success");
+        assert!(
+            matches!(result, Err(KernelError::AgentCodeHashMismatch)),
+            "Expected AgentCodeHashMismatch but got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_agent_code_hash_with_constraints() {
+        // Test that agent code hash verification works with custom constraints too.
+        use constraints::ConstraintSetV1;
+        use kernel_guest::kernel_main_with_constraints;
+
+        // With valid hash - should succeed
+        let valid_input = make_input(vec![1, 2, 3]); // make_input uses correct hash
+        let constraints = ConstraintSetV1::default();
+        let input_bytes = valid_input.encode().unwrap();
+        let result = kernel_main_with_constraints(&input_bytes, &constraints);
+        assert!(result.is_ok(), "Expected success with valid hash");
+
+        // With invalid hash - should fail
+        let invalid_input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xff; 32], // WRONG hash
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 2,
+            opaque_agent_inputs: vec![1, 2, 3],
+        };
+        let input_bytes = invalid_input.encode().unwrap();
+        let result = kernel_main_with_constraints(&input_bytes, &constraints);
+        assert!(
+            matches!(result, Err(KernelError::AgentCodeHashMismatch)),
+            "Expected AgentCodeHashMismatch but got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_agent_code_hash_constant_is_stable() {
+        // Verify the agent code hash is a 32-byte value (sanity check).
+        // The actual hash value will change when agent source changes,
+        // but the format should always be 32 bytes.
+        assert_eq!(AGENT_CODE_HASH.len(), 32);
+
+        // Hash should not be all zeros (would indicate a problem)
+        assert_ne!(AGENT_CODE_HASH, [0u8; 32], "Agent hash should not be all zeros");
+
+        // Hash should not be all 0xFF (would indicate a problem)
+        assert_ne!(AGENT_CODE_HASH, [0xffu8; 32], "Agent hash should not be all 0xFF");
     }
 
     // ========================================================================
