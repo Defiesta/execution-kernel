@@ -1,7 +1,6 @@
 # Execution Kernel - Canonical zkVM Guest Program
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen)](#testing)
 [![Deterministic](https://img.shields.io/badge/execution-deterministic-blue)](#consensus-critical-properties)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
@@ -15,11 +14,16 @@ This repository implements the **Canonical zkVM Guest Program**. The kernel prov
 
 The project is organized as a Rust workspace with the following crates:
 
-- **`kernel-core`** - Core types, deterministic binary codec, and SHA-256 hashing
-- **`kernel-guest`** - RISC Zero guest binary implementation
-- **`agent-traits`** - Canonical agent interface (with trivial reference implementation)
-- **`constraints`** - Constraint engine with action validation, asset whitelists, position limits, and global invariants
-- **`host-tests`** - Test suite (82 tests)
+| Crate | Description |
+|-------|-------------|
+| `kernel-core` | Core types, deterministic binary codec, and SHA-256 hashing |
+| `kernel-guest` | RISC Zero guest binary implementation |
+| `kernel-sdk` | Canonical agent interface and SDK |
+| `constraints` | Constraint engine with action validation, asset whitelists, position limits |
+| `example-agent` | Reference agent implementation with `agent_main` entrypoint |
+| `methods` | RISC Zero build crate - exports `ZKVM_GUEST_ELF` and `ZKVM_GUEST_ID` |
+| `e2e-tests` | End-to-end zkVM proof tests |
+| `host-tests` | Unit test suite (92 tests) |
 
 ## Protocol Constants
 
@@ -41,10 +45,10 @@ cargo build --release --features risc0
 
 ## Testing
 
-Run the test suite:
+### Unit Tests
 
 ```bash
-# Run all tests
+# Run all unit tests
 cargo test
 
 # Run tests with verbose output
@@ -56,44 +60,42 @@ cargo test test_golden_vector
 cargo test test_constraint
 ```
 
-### Test Coverage
+### E2E zkVM Proof Tests
 
-The test suite includes **82 comprehensive tests**:
+End-to-end tests that generate actual RISC Zero proofs:
 
-- **Encoding round-trip tests** - Verify canonical codec correctness for all protocol types
-- **Golden vector tests** - SHA-256 commitment verification with known outputs
-- **Determinism tests** - Same input produces identical journal bytes
-- **Trailing bytes rejection tests** - Strict decoding for all types
-- **Constraint validation tests** - All violation codes, payload schemas, whitelist checks
-- **Overflow protection tests** - Cooldown timestamp arithmetic safety
-- **Protocol validation tests** - Version checks and identity field propagation
+```bash
+# Install RISC Zero toolchain first
+cargo install cargo-risczero
+cargo risczero install
 
-### Deterministic Binary Codec
+# Run E2E proof tests (requires RISC Zero)
+cargo test -p e2e-tests --features risc0-e2e -- --test-threads=1 --nocapture
+```
 
-All protocol objects use explicit manual encoding:
-
-- Little-endian integers (`u32::to_le_bytes()`)
-- Length-prefixed byte arrays (`[length: u32][data: bytes]`)
-- Fixed-size arrays (agent_id, commitments)
-- No serde auto-derive to ensure determinism
-- Strict trailing bytes rejection
-
-
-### Failure Semantics
-
-- **Hard failures** (decoding, version mismatch): Kernel aborts, no journal produced
-- **Constraint violations**: Failure journal produced with `execution_status = 0x02` and empty action commitment
+**Note:** Use `--test-threads=1` to avoid parallel proof generation exhausting memory.
 
 ### Guest Program Flow
 
 1. Read input from zkVM environment
 2. Decode and validate `KernelInputV1`
-3. Verify protocol version
+3. Verify protocol version and agent code hash
 4. Compute input commitment
-5. Execute agent with bounded input
+5. Execute agent via `agent_main()` entrypoint
 6. Enforce constraints (mandatory, unskippable)
 7. Construct canonical journal (Success or Failure)
 8. Commit journal or abort on hard error
+
+## On-Chain Verification
+
+The E2E tests extract data needed for Solidity verifier integration:
+
+```rust
+// From receipt after proof generation
+seal: bytes      // 256-byte Groth16 proof
+journal: bytes   // KernelJournalV1 (variable length)
+imageId: bytes32 // ZKVM_GUEST_ID (guest identity)
+```
 
 ## Usage
 
@@ -101,12 +103,9 @@ All protocol objects use explicit manual encoding:
 
 ```bash
 # Clone and test the implementation
-git clone <repository-url>
+git clone https://github.com/Defiesta/execution-kernel.git
 cd execution-kernel
 cargo test
-
-# All tests should pass with output:
-# test result: ok. 82 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ```
 
 ### Creating a Kernel Input
@@ -118,7 +117,7 @@ let input = KernelInputV1 {
     protocol_version: PROTOCOL_VERSION,
     kernel_version: KERNEL_VERSION,
     agent_id: [0x42; 32],
-    agent_code_hash: [0xaa; 32],
+    agent_code_hash: example_agent::AGENT_CODE_HASH,  // Must match linked agent
     constraint_set_hash: [0xbb; 32],
     input_root: [0xcc; 32],
     execution_nonce: 1,
@@ -168,13 +167,16 @@ Any deviation from these principles breaks protocol consensus.
 - `docs/P0.2_DOCUMENTATION.md` - Canonical codec specification
 - `docs/P0.3_DOCUMENTATION.md` - Constraint system documentation
 - `spec/codec.md` - Wire format specification
-- `spec/constraints.md` - Constraint system specification (locked)
+- `spec/constraints.md` - Constraint system specification
+- `spec/sdk.md` - Kernel SDK specification
+- `spec/e2e-tests.md` - E2E testing specification
 
 ## Security Considerations
 
 The kernel assumes a **malicious host environment** and defends against:
 
 - **Input forgery attempts** - All inputs are cryptographically committed via SHA-256
+- **Agent substitution attacks** - `agent_code_hash` binding prevents unauthorized agents
 - **Constraint bypass attempts** - Constraint checking is mandatory and unskippable
 - **Non-determinism exploitation** - Strict deterministic execution requirements
 - **Protocol version confusion** - Explicit version validation on all inputs
@@ -183,7 +185,7 @@ The kernel assumes a **malicious host environment** and defends against:
 
 All security properties are enforced cryptographically through zkVM proofs.
 
-**Note:** The `action.target` field is not validated by the constraint engine in P0.3. Executor contracts are responsible for target validation.
+**Note:** The `action.target` field is not validated by the constraint engine. Executor contracts are responsible for target validation.
 
 ## License
 

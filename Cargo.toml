@@ -3,10 +3,12 @@ resolver = "2"
 members = [
     "crates/kernel-core",
     "crates/kernel-guest",
-    "crates/agent-traits",
     "crates/constraints",
     "crates/kernel-sdk",
+    "crates/example-agent",
     "crates/host-tests",
+    "crates/methods",
+    "crates/e2e-tests",
 ]
 
 [workspace.dependencies]

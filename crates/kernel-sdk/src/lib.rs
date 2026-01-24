@@ -25,11 +25,13 @@
 //!
 //! ```ignore
 //! #[no_mangle]
-//! pub extern "C" fn agent_main(ctx: &AgentContext) -> AgentOutput
+//! pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput
 //! ```
 //!
-//! The symbol name `agent_main` is fixed. No other entrypoints are recognized.
-//! Panics abort execution and invalidate the proof.
+//! - Uses `extern "Rust"` for safe ABI with Rust types
+//! - The symbol name `agent_main` is fixed and mandatory
+//! - No other entrypoints are recognized by the kernel
+//! - Panics abort execution and invalidate the proof
 //!
 //! # Example Agent
 //!
@@ -37,9 +39,9 @@
 //! use kernel_sdk::prelude::*;
 //!
 //! #[no_mangle]
-//! pub extern "C" fn agent_main(ctx: &AgentContext) -> AgentOutput {
+//! pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
 //!     // Echo the opaque inputs back as an action
-//!     let action = echo_action(*ctx.agent_id, ctx.opaque_inputs.to_vec());
+//!     let action = echo_action(ctx.agent_id, opaque_inputs.to_vec());
 //!
 //!     // Build output with explicit, bounded allocation
 //!     let mut actions = Vec::with_capacity(1);
@@ -258,9 +260,9 @@ mod tests {
         #[allow(unused_imports)]
         use crate::prelude::*;
 
-        // Verify key types are accessible
+        // Verify key types are accessible with 2-arg signature
         fn _check_types() {
-            let _: fn(&AgentContext) -> AgentOutput = |_| AgentOutput {
+            let _: fn(&AgentContext, &[u8]) -> AgentOutput = |_, _| AgentOutput {
                 actions: Vec::new(),
             };
         }
