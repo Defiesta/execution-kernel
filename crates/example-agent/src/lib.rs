@@ -11,16 +11,28 @@
 //! - Otherwise → Empty output (no actions)
 //!
 //! This allows testing both action-producing and no-action execution paths.
+//!
+//! # Agent Code Hash
+//!
+//! This crate exports [`AGENT_CODE_HASH`], a compile-time constant that uniquely
+//! identifies this agent's source code. The kernel uses this to verify that the
+//! `agent_code_hash` field in `KernelInputV1` matches the linked agent.
+//!
+//! See the `build.rs` file for details on how the hash is computed.
 
 #![no_std]
-// Use `deny` instead of `forbid` to allow targeted exception for #[no_mangle]
-// The #[no_mangle] attribute is required for the canonical agent_main symbol,
-// and triggers the unsafe_code lint because symbol collisions are UB.
+// We use `deny` instead of `forbid` because `#[no_mangle]` triggers the
+// unsafe_code lint in modern Rust (symbol collisions are UB). The allow
+// is scoped to only the agent_main function.
 #![deny(unsafe_code)]
 
 extern crate alloc;
 
 use kernel_sdk::prelude::*;
+
+// Include the generated agent hash constant.
+// This is created by build.rs and contains AGENT_CODE_HASH.
+include!(concat!(env!("OUT_DIR"), "/agent_hash.rs"));
 
 /// Canonical agent entrypoint.
 ///
@@ -32,11 +44,19 @@ use kernel_sdk::prelude::*;
 /// - `ctx`: Execution context with identity and metadata
 /// - `opaque_inputs`: Agent-specific input data
 ///
-/// # Safety Note
+/// # Symbol Requirements
 ///
 /// The `#[no_mangle]` attribute is required so the kernel can find this symbol.
-/// The `unsafe_code` lint is allowed here because the symbol name is canonical
-/// and expected by the kernel - there is no risk of collision.
+/// The symbol name `agent_main` is fixed by the kernel ABI specification.
+///
+/// # Lint Exception
+///
+/// `#[no_mangle]` triggers the `unsafe_code` lint because symbol collisions
+/// can cause undefined behavior. The `#[allow(unsafe_code)]` is scoped to
+/// this function only, and is safe because:
+/// - The symbol `agent_main` is the canonical entrypoint defined by the kernel ABI
+/// - Only one agent is linked per guest binary
+/// - The kernel explicitly expects this exact symbol name
 #[no_mangle]
 #[allow(unsafe_code)]
 pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
@@ -57,6 +77,19 @@ pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> Age
         AgentOutput { actions: Vec::new() }
     }
 }
+
+// ============================================================================
+// Compile-time ABI Verification
+// ============================================================================
+
+/// Compile-time check that agent_main matches the canonical AgentEntrypoint type.
+///
+/// This ensures the function signature is correct at compile time rather than
+/// failing at link time with a cryptic error.
+///
+/// NOTE: `extern "Rust"` requires the agent and kernel to be compiled with
+/// the same rustc toolchain. The workspace pins the toolchain for determinism.
+const _: AgentEntrypoint = agent_main;
 
 #[cfg(test)]
 mod tests {

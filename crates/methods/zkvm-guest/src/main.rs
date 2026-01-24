@@ -1,20 +1,18 @@
 //! RISC Zero zkVM Guest Entry Point
 //!
-//! This binary is compiled as a RISC Zero guest program. When executed in the zkVM:
-//! 1. Reads `KernelInputV1` bytes from the host via `env::read()`
-//! 2. Executes `kernel_main()` which runs the agent and enforces constraints
-//! 3. Commits the `KernelJournalV1` bytes to the journal via `env::commit()`
+//! This is a wrapper that delegates to the kernel-guest library for zkVM execution.
 //!
-//! The journal commitment is included in the proof receipt and can be verified
-//! by the host along with the IMAGE_ID.
+//! # Execution Flow
+//!
+//! 1. Read `KernelInputV1` bytes from the host via `env::read()`
+//! 2. Execute `kernel_main()` which runs the agent and enforces constraints
+//! 3. Commit the `KernelJournalV1` bytes to the journal via `env::commit_slice()`
 //!
 //! # Error Handling
 //!
 //! If kernel execution fails (e.g., version mismatch, agent code hash mismatch),
 //! the guest panics. This aborts proof generation - no valid receipt is produced.
-//! This is the correct behavior: failed executions should not generate proofs.
 
-#[cfg(feature = "risc0")]
 fn main() {
     use risc0_zkvm::guest::env;
 
@@ -32,11 +30,4 @@ fn main() {
             panic!("Kernel execution failed: {:?}", error);
         }
     }
-}
-
-#[cfg(not(feature = "risc0"))]
-fn main() {
-    eprintln!("This binary is intended to run inside RISC Zero zkVM.");
-    eprintln!("Build with --features risc0 and use the methods crate for E2E testing.");
-    std::process::exit(1);
 }

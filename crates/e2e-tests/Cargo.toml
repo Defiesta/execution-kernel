@@ -1,0 +1,40 @@
+[package]
+name = "e2e-tests"
+version = "0.1.0"
+edition = "2021"
+description = "End-to-end zkVM proof tests for the execution kernel"
+license = "Apache-2.0"
+publish = false
+
+# This crate contains only tests, no library
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Kernel crates for types and encoding
+kernel-core = { path = "../kernel-core" }
+kernel-sdk = { path = "../kernel-sdk" }
+constraints = { path = "../constraints" }
+
+# Agent code hash for input construction
+example-agent = { path = "../example-agent" }
+
+# Methods crate provides the guest ELF and IMAGE_ID
+methods = { path = "../methods", optional = true }
+
+# RISC Zero prover and verifier (host-side)
+risc0-zkvm = { version = "3.0", default-features = false, optional = true }
+
+[dev-dependencies]
+# Same dependencies for tests
+kernel-core = { path = "../kernel-core" }
+kernel-sdk = { path = "../kernel-sdk" }
+constraints = { path = "../constraints" }
+example-agent = { path = "../example-agent" }
+hex = "0.4"
+
+[features]
+default = []
+# Enable this feature to run zkVM proof tests
+# Requires RISC Zero toolchain installed
+risc0-e2e = ["dep:methods", "dep:risc0-zkvm", "risc0-zkvm/prove"]

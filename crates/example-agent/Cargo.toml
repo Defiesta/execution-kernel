@@ -10,3 +10,6 @@ crate-type = ["rlib"]
 
 [dependencies]
 kernel-sdk = { path = "../kernel-sdk" }
+
+[build-dependencies]
+sha2 = "0.10"
