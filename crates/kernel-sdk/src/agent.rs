@@ -1,7 +1,8 @@
 //! Agent context and entrypoint definitions.
 //!
 //! This module defines the canonical agent interface used by the kernel.
-//! Agents receive an [`AgentContext`] and must return an [`AgentOutput`].
+//! Agents receive an [`AgentContext`] and opaque inputs, and must return
+//! an [`AgentOutput`].
 //!
 //! # Canonical Entrypoint
 //!
@@ -9,10 +10,11 @@
 //!
 //! ```ignore
 //! #[no_mangle]
-//! pub extern "C" fn agent_main(ctx: &AgentContext) -> AgentOutput
+//! pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput
 //! ```
 //!
 //! - The symbol name `agent_main` is fixed and mandatory
+//! - Uses `extern "Rust"` for safe ABI with Rust types
 //! - No other entrypoints are recognized by the kernel
 //! - Panics abort execution and invalidate the proof
 //!
@@ -22,9 +24,9 @@
 //! use kernel_sdk::prelude::*;
 //!
 //! #[no_mangle]
-//! pub extern "C" fn agent_main(ctx: &AgentContext) -> AgentOutput {
+//! pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
 //!     // Pure, deterministic logic only
-//!     AgentOutput { actions: vec![] }
+//!     AgentOutput { actions: Vec::new() }
 //! }
 //! ```
 
@@ -32,20 +34,20 @@ use crate::types::AgentOutput;
 
 /// Execution context provided to agents by the kernel.
 ///
-/// This structure contains all information an agent needs to make decisions
-/// and produce actions. All fields are immutable and pre-validated by the kernel.
+/// This structure contains all identity and metadata information an agent
+/// needs to make decisions. The actual input data is passed separately
+/// as `opaque_inputs` to the entrypoint.
+///
+/// # Design Rationale
+///
+/// - All fields are owned/Copy types (no lifetimes)
+/// - `opaque_inputs` is passed as a separate argument to the entrypoint
+/// - This keeps the context a clean "header" structure
 ///
 /// # ABI Stability
 ///
 /// This struct uses `#[repr(C)]` to ensure a stable, predictable memory layout
-/// across crate versions and compiler updates. This is required because the
-/// canonical entrypoint uses `extern "C"` ABI.
-///
-/// # Immutability
-///
-/// - All fields are references or Copy types
-/// - No interior mutability is permitted
-/// - Agents cannot modify the context
+/// across crate versions and compiler updates.
 ///
 /// # Validation
 ///
@@ -53,14 +55,9 @@ use crate::types::AgentOutput;
 /// - Protocol and kernel versions are supported
 /// - Identifiers and hashes are correctly formatted
 /// - Size limits are enforced
-///
-/// # Lifetime
-///
-/// The `'a` lifetime is tied to the kernel's input buffer. The context
-/// is valid for the duration of the `agent_main` call.
 #[repr(C)]
-#[derive(Clone, Debug)]
-pub struct AgentContext<'a> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AgentContext {
     /// Protocol version for wire format compatibility.
     ///
     /// Currently must be 1. Agents can check this to ensure compatibility.
@@ -76,71 +73,47 @@ pub struct AgentContext<'a> {
     ///
     /// Uniquely identifies this agent within the protocol.
     /// Commonly used as the default target for actions.
-    pub agent_id: &'a [u8; 32],
+    pub agent_id: [u8; 32],
 
     /// SHA-256 hash of the agent binary.
     ///
     /// The proof binds to this specific agent code.
     /// Agents can use this to verify they are running expected code.
-    pub agent_code_hash: &'a [u8; 32],
+    pub agent_code_hash: [u8; 32],
 
     /// SHA-256 hash of the constraint set being enforced.
     ///
     /// Identifies the economic safety rules applied to this execution.
     /// Agents can use this to adjust behavior based on constraint policy.
-    pub constraint_set_hash: &'a [u8; 32],
+    pub constraint_set_hash: [u8; 32],
 
     /// External state root (market/vault snapshot).
     ///
     /// Merkle root or hash of the external state the agent observes.
     /// The proof binds to this specific state snapshot.
-    pub input_root: &'a [u8; 32],
+    pub input_root: [u8; 32],
 
     /// Monotonic nonce for replay protection.
     ///
     /// Must be strictly increasing across executions for the same agent.
     /// Used by the settlement layer to prevent replay attacks.
     pub execution_nonce: u64,
-
-    /// Opaque agent-specific input data.
-    ///
-    /// This byte slice contains agent-defined data. The kernel does not
-    /// interpret this data beyond size validation (max 64,000 bytes).
-    ///
-    /// # Snapshot Prefix Convention
-    ///
-    /// If cooldown or drawdown constraints are enabled, the **first 36 bytes**
-    /// of `opaque_inputs` must contain a `StateSnapshotV1`:
-    ///
-    /// | Offset | Field             | Type | Size |
-    /// |--------|-------------------|------|------|
-    /// | 0      | snapshot_version  | u32  | 4    |
-    /// | 4      | last_execution_ts | u64  | 8    |
-    /// | 12     | current_ts        | u64  | 8    |
-    /// | 20     | current_equity    | u64  | 8    |
-    /// | 28     | peak_equity       | u64  | 8    |
-    ///
-    /// Any bytes after the first 36 are agent-specific and ignored by the
-    /// constraint engine. See `spec/constraints.md` for full details.
-    pub opaque_inputs: &'a [u8],
 }
 
-impl<'a> AgentContext<'a> {
+impl AgentContext {
     /// Create a new AgentContext from kernel input data.
     ///
     /// This is called by the kernel, not by agents.
     /// Agents receive the context as a parameter to `agent_main`.
     #[doc(hidden)]
-    #[allow(clippy::too_many_arguments)] // Intentional: matches kernel input structure
     pub fn new(
         protocol_version: u32,
         kernel_version: u32,
-        agent_id: &'a [u8; 32],
-        agent_code_hash: &'a [u8; 32],
-        constraint_set_hash: &'a [u8; 32],
-        input_root: &'a [u8; 32],
+        agent_id: [u8; 32],
+        agent_code_hash: [u8; 32],
+        constraint_set_hash: [u8; 32],
+        input_root: [u8; 32],
         execution_nonce: u64,
-        opaque_inputs: &'a [u8],
     ) -> Self {
         Self {
             protocol_version,
@@ -150,7 +123,6 @@ impl<'a> AgentContext<'a> {
             constraint_set_hash,
             input_root,
             execution_nonce,
-            opaque_inputs,
         }
     }
 
@@ -169,53 +141,39 @@ impl<'a> AgentContext<'a> {
     pub fn is_kernel_v1(&self) -> bool {
         self.kernel_version == 1
     }
-
-    /// Get the length of opaque inputs.
-    #[inline]
-    pub fn inputs_len(&self) -> usize {
-        self.opaque_inputs.len()
-    }
-
-    /// Check if opaque inputs is empty.
-    #[inline]
-    pub fn inputs_is_empty(&self) -> bool {
-        self.opaque_inputs.is_empty()
-    }
-
-    /// Check if opaque inputs contains at least a state snapshot prefix.
-    ///
-    /// Returns true if `opaque_inputs.len() >= 36`.
-    #[inline]
-    pub fn has_snapshot_prefix(&self) -> bool {
-        self.opaque_inputs.len() >= 36
-    }
-
-    /// Get the agent-specific portion of opaque inputs (bytes after snapshot).
-    ///
-    /// Returns the bytes after the 36-byte snapshot prefix, or the full
-    /// slice if shorter than 36 bytes.
-    #[inline]
-    pub fn agent_inputs(&self) -> &[u8] {
-        if self.opaque_inputs.len() > 36 {
-            &self.opaque_inputs[36..]
-        } else {
-            &[]
-        }
-    }
 }
 
 /// Type alias for the canonical agent entrypoint function.
 ///
 /// Agents must implement a function with this signature and expose it
-/// with `#[no_mangle] pub extern "C"` and the name `agent_main`.
+/// with `#[no_mangle]` and the name `agent_main`.
 ///
-/// The lifetime parameter `'a` is tied to the kernel's input buffer.
+/// # Signature
 ///
-/// Note: `AgentOutput` is not FFI-safe (no `#[repr(C)]`), but this is
-/// acceptable because zkVM guest execution uses its own ABI mechanisms
-/// rather than literal C FFI.
-#[allow(improper_ctypes_definitions)]
-pub type AgentEntrypoint<'a> = extern "C" fn(&AgentContext<'a>) -> AgentOutput;
+/// ```ignore
+/// fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput
+/// ```
+///
+/// - `ctx`: Execution context with identity and metadata
+/// - `opaque_inputs`: Agent-specific input data (max 64,000 bytes)
+/// - Returns: `AgentOutput` containing ordered actions
+///
+/// # Opaque Inputs Convention
+///
+/// If cooldown or drawdown constraints are enabled, the **first 36 bytes**
+/// of `opaque_inputs` must contain a `StateSnapshotV1`:
+///
+/// | Offset | Field             | Type | Size |
+/// |--------|-------------------|------|------|
+/// | 0      | snapshot_version  | u32  | 4    |
+/// | 4      | last_execution_ts | u64  | 8    |
+/// | 12     | current_ts        | u64  | 8    |
+/// | 20     | current_equity    | u64  | 8    |
+/// | 28     | peak_equity       | u64  | 8    |
+///
+/// Any bytes after the first 36 are agent-specific and ignored by the
+/// constraint engine. See `spec/constraints.md` for full details.
+pub type AgentEntrypoint = extern "Rust" fn(&AgentContext, &[u8]) -> AgentOutput;
 
 #[cfg(test)]
 mod tests {
@@ -223,104 +181,46 @@ mod tests {
 
     #[test]
     fn test_agent_context_creation() {
-        let agent_id = [0x42u8; 32];
-        let code_hash = [0xaau8; 32];
-        let constraint_hash = [0xbbu8; 32];
-        let input_root = [0xccu8; 32];
-        let inputs = [1u8, 2, 3, 4, 5];
-
         let ctx = AgentContext::new(
             1,
             1,
-            &agent_id,
-            &code_hash,
-            &constraint_hash,
-            &input_root,
+            [0x42u8; 32],
+            [0xaau8; 32],
+            [0xbbu8; 32],
+            [0xccu8; 32],
             12345,
-            &inputs,
         );
 
         assert_eq!(ctx.protocol_version, 1);
         assert_eq!(ctx.kernel_version, 1);
-        assert_eq!(ctx.agent_id, &agent_id);
+        assert_eq!(ctx.agent_id, [0x42u8; 32]);
         assert_eq!(ctx.execution_nonce, 12345);
-        assert_eq!(ctx.opaque_inputs, &inputs);
         assert!(ctx.is_protocol_v1());
         assert!(ctx.is_kernel_v1());
-        assert_eq!(ctx.inputs_len(), 5);
-        assert!(!ctx.inputs_is_empty());
     }
 
     #[test]
-    fn test_agent_context_empty_inputs() {
-        let agent_id = [0u8; 32];
-        let code_hash = [0u8; 32];
-        let constraint_hash = [0u8; 32];
-        let input_root = [0u8; 32];
-        let inputs: [u8; 0] = [];
-
+    fn test_agent_context_copy() {
         let ctx = AgentContext::new(
             1,
             1,
-            &agent_id,
-            &code_hash,
-            &constraint_hash,
-            &input_root,
-            0,
-            &inputs,
-        );
-
-        assert!(ctx.inputs_is_empty());
-        assert_eq!(ctx.inputs_len(), 0);
-        assert!(!ctx.has_snapshot_prefix());
-        assert!(ctx.agent_inputs().is_empty());
-    }
-
-    #[test]
-    fn test_agent_context_with_snapshot_prefix() {
-        let agent_id = [0u8; 32];
-        let code_hash = [0u8; 32];
-        let constraint_hash = [0u8; 32];
-        let input_root = [0u8; 32];
-        // 36 bytes snapshot + 4 bytes agent data
-        let inputs = [0u8; 40];
-
-        let ctx = AgentContext::new(
-            1,
-            1,
-            &agent_id,
-            &code_hash,
-            &constraint_hash,
-            &input_root,
-            0,
-            &inputs,
-        );
-
-        assert!(ctx.has_snapshot_prefix());
-        assert_eq!(ctx.agent_inputs().len(), 4);
-    }
-
-    #[test]
-    fn test_agent_context_clone() {
-        let agent_id = [0x42u8; 32];
-        let code_hash = [0u8; 32];
-        let constraint_hash = [0u8; 32];
-        let input_root = [0u8; 32];
-        let inputs = [1u8, 2, 3];
-
-        let ctx = AgentContext::new(
-            1,
-            1,
-            &agent_id,
-            &code_hash,
-            &constraint_hash,
-            &input_root,
+            [0x42u8; 32],
+            [0u8; 32],
+            [0u8; 32],
+            [0u8; 32],
             42,
-            &inputs,
         );
 
-        let ctx2 = ctx.clone();
+        // AgentContext is Copy
+        let ctx2 = ctx;
         assert_eq!(ctx.agent_id, ctx2.agent_id);
         assert_eq!(ctx.execution_nonce, ctx2.execution_nonce);
+    }
+
+    #[test]
+    fn test_agent_context_repr_c() {
+        // Verify the struct has a predictable size
+        // 4 + 4 + 32 + 32 + 32 + 32 + 8 = 144 bytes
+        assert_eq!(core::mem::size_of::<AgentContext>(), 144);
     }
 }

@@ -2,6 +2,15 @@
 name = "agent-traits"
 version = "0.1.0"
 edition = "2021"
+description = "Agent ABI definitions and reference implementations"
+license = "Apache-2.0"
 
 [dependencies]
 kernel-core = { path = "../kernel-core" }
+kernel-sdk = { path = "../kernel-sdk" }
+
+[features]
+default = ["reference-agents"]
+# Enable reference agent implementations (TrivialAgent, NoOpAgent, MultiActionAgent)
+# These are useful for testing but should not be used in production
+reference-agents = []
