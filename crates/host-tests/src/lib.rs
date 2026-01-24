@@ -1,5 +1,5 @@
-// Force linking of example-agent to provide the agent_main symbol
-// This is required because kernel-guest declares an extern "C" fn agent_main
+// Force linking of example-agent to provide the agent_main symbol.
+// This is required because kernel-guest declares an extern "Rust" fn agent_main
 // which must be provided by a linked agent crate.
 extern crate example_agent;
 
