@@ -1,3 +1,8 @@
+// Force linking of example-agent to provide the agent_main symbol
+// This is required because kernel-guest declares an extern "C" fn agent_main
+// which must be provided by a linked agent crate.
+extern crate example_agent;
+
 #[cfg(test)]
 mod tests {
     use kernel_core::*;
@@ -7,6 +12,7 @@ mod tests {
         ensure_no_trailing_bytes,
     };
     use kernel_guest::kernel_main;
+    use constraints::EMPTY_OUTPUT_COMMITMENT;
 
     /// Helper to create a valid KernelInputV1 with default values
     fn make_input(agent_input: Vec<u8>) -> KernelInputV1 {
@@ -1765,6 +1771,194 @@ mod tests {
         assert!(result.is_err());
         let violation = result.unwrap_err();
         assert_eq!(violation.reason, ConstraintViolationReason::InvalidStateSnapshot);
+    }
+
+    // ========================================================================
+    // P0.4: Canonical agent_main Entrypoint Tests
+    // ========================================================================
+
+    #[test]
+    fn test_agent_main_echo_success() {
+        // When opaque_inputs[0] == 1, the example-agent produces an echo action
+        // which should result in SUCCESS status
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xaa; 32],
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 1,
+            opaque_agent_inputs: vec![1, 2, 3, 4, 5], // First byte is 1 -> echo
+        };
+
+        let input_bytes = input.encode().unwrap();
+        let journal_bytes = kernel_main(&input_bytes).unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        // Verify SUCCESS status
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+
+        // Verify identity fields are preserved
+        assert_eq!(journal.agent_id, [0x42; 32]);
+        assert_eq!(journal.agent_code_hash, [0xaa; 32]);
+        assert_eq!(journal.constraint_set_hash, [0xbb; 32]);
+        assert_eq!(journal.input_root, [0xcc; 32]);
+        assert_eq!(journal.execution_nonce, 1);
+
+        // Action commitment should NOT be the empty output commitment
+        assert_ne!(journal.action_commitment, EMPTY_OUTPUT_COMMITMENT);
+    }
+
+    #[test]
+    fn test_agent_main_no_echo_empty_output() {
+        // When opaque_inputs[0] != 1, the example-agent produces no actions
+        // which should still result in SUCCESS status (empty output is valid)
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xaa; 32],
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 2,
+            opaque_agent_inputs: vec![0, 2, 3, 4, 5], // First byte is 0 -> no echo
+        };
+
+        let input_bytes = input.encode().unwrap();
+        let journal_bytes = kernel_main(&input_bytes).unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        // Verify SUCCESS status (empty output is valid)
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+
+        // Action commitment should be the empty output commitment
+        assert_eq!(journal.action_commitment, EMPTY_OUTPUT_COMMITMENT);
+    }
+
+    #[test]
+    fn test_agent_main_empty_inputs_no_echo() {
+        // Empty opaque_inputs should result in no actions
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xaa; 32],
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 3,
+            opaque_agent_inputs: vec![], // Empty -> no echo
+        };
+
+        let input_bytes = input.encode().unwrap();
+        let journal_bytes = kernel_main(&input_bytes).unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        // Verify SUCCESS status
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+
+        // Action commitment should be the empty output commitment
+        assert_eq!(journal.action_commitment, EMPTY_OUTPUT_COMMITMENT);
+    }
+
+    #[test]
+    fn test_agent_main_echo_commitment_verification() {
+        // Verify that the action commitment is correctly computed for echo action
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xaa; 32],
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 4,
+            opaque_agent_inputs: vec![1, 0xde, 0xad, 0xbe, 0xef], // First byte is 1 -> echo
+        };
+
+        let input_bytes = input.encode().unwrap();
+        let journal_bytes = kernel_main(&input_bytes).unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        assert_eq!(journal.execution_status, ExecutionStatus::Success);
+
+        // Manually compute expected action commitment
+        // The example-agent creates an echo action with:
+        // - action_type = 0x00000001 (ECHO)
+        // - target = agent_id = [0x42; 32]
+        // - payload = opaque_inputs = [1, 0xde, 0xad, 0xbe, 0xef]
+        let expected_action = ActionV1 {
+            action_type: 0x00000001, // ACTION_TYPE_ECHO
+            target: [0x42; 32],
+            payload: vec![1, 0xde, 0xad, 0xbe, 0xef],
+        };
+        let expected_output = AgentOutput {
+            actions: vec![expected_action],
+        };
+        let expected_output_bytes = expected_output.encode().unwrap();
+        let expected_commitment = compute_action_commitment(&expected_output_bytes);
+
+        assert_eq!(journal.action_commitment, expected_commitment);
+    }
+
+    #[test]
+    fn test_agent_main_determinism() {
+        // Verify that the same input produces the same output
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x11; 32],
+            agent_code_hash: [0x22; 32],
+            constraint_set_hash: [0x33; 32],
+            input_root: [0x44; 32],
+            execution_nonce: 100,
+            opaque_agent_inputs: vec![1, 0xff, 0xee, 0xdd],
+        };
+
+        let input_bytes = input.encode().unwrap();
+
+        // Run multiple times
+        let result1 = kernel_main(&input_bytes).unwrap();
+        let result2 = kernel_main(&input_bytes).unwrap();
+        let result3 = kernel_main(&input_bytes).unwrap();
+
+        // All results should be identical
+        assert_eq!(result1, result2);
+        assert_eq!(result2, result3);
+    }
+
+    #[test]
+    fn test_constraint_violation_with_agent_main() {
+        // Test that constraint violations are properly handled with the new agent_main flow
+        // Use a constraint set that rejects the echo action by limiting max_actions_per_output to 0
+        use constraints::ConstraintSetV1;
+        use kernel_guest::kernel_main_with_constraints;
+
+        let input = KernelInputV1 {
+            protocol_version: PROTOCOL_VERSION,
+            kernel_version: KERNEL_VERSION,
+            agent_id: [0x42; 32],
+            agent_code_hash: [0xaa; 32],
+            constraint_set_hash: [0xbb; 32],
+            input_root: [0xcc; 32],
+            execution_nonce: 5,
+            opaque_agent_inputs: vec![1, 2, 3], // First byte is 1 -> echo (produces 1 action)
+        };
+
+        // Constraint set that only allows 0 actions
+        let constraints = ConstraintSetV1 {
+            max_actions_per_output: 0, // This will reject any non-empty output
+            ..ConstraintSetV1::default()
+        };
+
+        let input_bytes = input.encode().unwrap();
+        let journal_bytes = kernel_main_with_constraints(&input_bytes, &constraints).unwrap();
+        let journal = KernelJournalV1::decode(&journal_bytes).unwrap();
+
+        // Verify FAILURE status due to constraint violation
+        assert_eq!(journal.execution_status, ExecutionStatus::Failure);
+
+        // On failure, action commitment should be the empty output commitment
+        assert_eq!(journal.action_commitment, EMPTY_OUTPUT_COMMITMENT);
     }
 
     // ========================================================================

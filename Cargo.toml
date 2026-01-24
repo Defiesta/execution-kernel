@@ -6,6 +6,7 @@ members = [
     "crates/agent-traits",
     "crates/constraints",
     "crates/kernel-sdk",
+    "crates/example-agent",
     "crates/host-tests",
 ]
 

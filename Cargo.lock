@@ -7,6 +7,7 @@ name = "agent-traits"
 version = "0.1.0"
 dependencies = [
  "kernel-core",
+ "kernel-sdk",
 ]
 
 [[package]]
@@ -61,6 +62,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-agent"
+version = "0.1.0"
+dependencies = [
+ "kernel-sdk",
+]
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -74,10 +82,11 @@ dependencies = [
 name = "host-tests"
 version = "0.1.0"
 dependencies = [
- "agent-traits",
  "constraints",
+ "example-agent",
  "kernel-core",
  "kernel-guest",
+ "kernel-sdk",
  "serde",
  "serde_json",
 ]
@@ -99,9 +108,10 @@ dependencies = [
 name = "kernel-guest"
 version = "0.1.0"
 dependencies = [
- "agent-traits",
  "constraints",
+ "example-agent",
  "kernel-core",
+ "kernel-sdk",
 ]
 
 [[package]]

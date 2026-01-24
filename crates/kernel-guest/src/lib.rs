@@ -1,6 +1,55 @@
+//! Kernel Guest Execution Logic
+//!
+//! This crate implements the core kernel execution logic that runs inside
+//! the zkVM guest. It orchestrates agent execution through the canonical
+//! `agent_main` entrypoint.
+//!
+//! # Execution Flow
+//!
+//! 1. Decode input bytes → `KernelInputV1`
+//! 2. Validate protocol and kernel versions
+//! 3. Compute input commitment (SHA256)
+//! 4. Build `AgentContext` from kernel input
+//! 5. Call `agent_main` via `extern "Rust"` ABI
+//! 6. Enforce constraints on agent output (UNSKIPPABLE)
+//! 7. Compute action commitment (SHA256)
+//! 8. Return encoded `KernelJournalV1`
+//!
+//! # Agent Entrypoint
+//!
+//! The agent is invoked through an `extern "Rust"` function with the symbol
+//! `agent_main`. This function is linked at compile time (for static
+//! agents like `example-agent`) or at load time (for dynamic agents).
+
 use kernel_core::*;
-use agent_traits::{Agent, AgentContext, TrivialAgent};
+use kernel_sdk::agent::AgentContext;
 use constraints::{enforce_constraints, ConstraintSetV1, EMPTY_OUTPUT_COMMITMENT};
+
+// ============================================================================
+// Agent Entrypoint Declaration
+// ============================================================================
+
+// The agent_main function is provided by the linked agent crate.
+// For example, when the `example-agent` feature is enabled, the
+// example_agent::agent_main function is linked.
+//
+// Using `extern "Rust"` is safe for Rust types like &AgentContext and
+// AgentOutput (which contains Vec). This avoids the ABI-safety issues
+// that would arise with `extern "C"`.
+extern "Rust" {
+    fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput;
+}
+
+/// Safe wrapper for calling the agent entrypoint.
+#[inline]
+fn call_agent(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
+    // Safe: extern "Rust" guarantees correct ABI for Rust types
+    unsafe { agent_main(ctx, opaque_inputs) }
+}
+
+// ============================================================================
+// Main Kernel Execution
+// ============================================================================
 
 /// Main kernel execution function.
 ///
@@ -8,7 +57,7 @@ use constraints::{enforce_constraints, ConstraintSetV1, EMPTY_OUTPUT_COMMITMENT}
 /// 1. Decodes and validates input
 /// 2. Verifies protocol and kernel versions
 /// 3. Computes input commitment
-/// 4. Executes the agent
+/// 4. Executes the agent via `agent_main`
 /// 5. Enforces constraints on agent output (UNSKIPPABLE)
 /// 6. Computes action commitment
 /// 7. Constructs and returns the journal
@@ -59,18 +108,19 @@ pub fn kernel_main(input_bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
     // 3. Compute input commitment (over full input bytes)
     let input_commitment = compute_input_commitment(input_bytes);
 
-    // 4. Build agent context from input
-    let agent_ctx = AgentContext {
-        agent_id: input.agent_id,
-        agent_code_hash: input.agent_code_hash,
-        constraint_set_hash: input.constraint_set_hash,
-        input_root: input.input_root,
-        execution_nonce: input.execution_nonce,
-    };
+    // 4. Build agent context from input (using kernel-sdk AgentContext)
+    let agent_ctx = AgentContext::new(
+        input.protocol_version,
+        input.kernel_version,
+        input.agent_id,
+        input.agent_code_hash,
+        input.constraint_set_hash,
+        input.input_root,
+        input.execution_nonce,
+    );
 
-    // 5. Execute agent
-    let agent_output = TrivialAgent::run(&agent_ctx, &input.opaque_agent_inputs)
-        .map_err(KernelError::AgentExecutionFailed)?;
+    // 5. Execute agent via canonical agent_main entrypoint
+    let agent_output = call_agent(&agent_ctx, &input.opaque_agent_inputs);
 
     // 6. Get constraint set (P0.3: use default permissive constraints)
     let constraint_set = ConstraintSetV1::default();
@@ -151,18 +201,19 @@ pub fn kernel_main_with_constraints(
     // 3. Compute input commitment
     let input_commitment = compute_input_commitment(input_bytes);
 
-    // 4. Build agent context
-    let agent_ctx = AgentContext {
-        agent_id: input.agent_id,
-        agent_code_hash: input.agent_code_hash,
-        constraint_set_hash: input.constraint_set_hash,
-        input_root: input.input_root,
-        execution_nonce: input.execution_nonce,
-    };
+    // 4. Build agent context (using kernel-sdk AgentContext)
+    let agent_ctx = AgentContext::new(
+        input.protocol_version,
+        input.kernel_version,
+        input.agent_id,
+        input.agent_code_hash,
+        input.constraint_set_hash,
+        input.input_root,
+        input.execution_nonce,
+    );
 
-    // 5. Execute agent
-    let agent_output = TrivialAgent::run(&agent_ctx, &input.opaque_agent_inputs)
-        .map_err(KernelError::AgentExecutionFailed)?;
+    // 5. Execute agent via canonical agent_main entrypoint
+    let agent_output = call_agent(&agent_ctx, &input.opaque_agent_inputs);
 
     // 6. ENFORCE CONSTRAINTS (UNSKIPPABLE)
     let (validated_output, execution_status) =

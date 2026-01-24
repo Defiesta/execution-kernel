@@ -1,11 +1,62 @@
-use kernel_core::{AgentOutput, ActionV1, AgentError, MAX_ACTIONS_PER_OUTPUT};
+//! Agent ABI Definitions and Reference Implementations
+//!
+//! This crate provides the canonical agent interface types and reference
+//! implementations for testing.
+//!
+//! # Canonical Types (from kernel-sdk)
+//!
+//! - [`AgentContext`] - Execution context provided to agents
+//! - [`AgentEntrypoint`] - Type alias for the canonical agent_main signature
+//! - [`AgentOutput`] - Structured output containing ordered actions
+//!
+//! # Entrypoint Symbol
+//!
+//! The canonical entrypoint symbol name is defined by [`AGENT_ENTRYPOINT_SYMBOL`].
+//! All agents must expose exactly this function:
+//!
+//! ```ignore
+//! #[no_mangle]
+//! pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput
+//! ```
+//!
+//! # Reference Agents (feature: `reference-agents`)
+//!
+//! When the `reference-agents` feature is enabled (default), the following
+//! test implementations are available:
+//!
+//! - [`TrivialAgent`] - Echoes input as a single action
+//! - [`NoOpAgent`] - Produces no actions
+//! - [`MultiActionAgent`] - Produces multiple actions for testing
+//!
+//! These are NOT production-ready and exist only for testing.
 
-/// Context provided to agents during execution.
+// Re-export canonical types from kernel-sdk
+pub use kernel_sdk::agent::{AgentContext, AgentEntrypoint};
+pub use kernel_sdk::types::AgentOutput;
+
+/// Canonical entrypoint symbol name.
 ///
-/// Contains all identity and state information the agent needs
-/// to make decisions and produce actions.
+/// All agents must export a function with this exact symbol name.
+/// The kernel uses this symbol to locate the agent entrypoint.
+pub const AGENT_ENTRYPOINT_SYMBOL: &str = "agent_main";
+
+// ============================================================================
+// Legacy Types (for backward compatibility during transition)
+// ============================================================================
+
+use kernel_core::{ActionV1, AgentError, MAX_ACTIONS_PER_OUTPUT};
+
+/// Legacy agent context (owned fields).
+///
+/// **DEPRECATED**: Use [`AgentContext`] from kernel-sdk instead.
+/// This type is kept for backward compatibility during the transition
+/// to the canonical `agent_main` entrypoint.
+#[deprecated(
+    since = "0.2.0",
+    note = "Use kernel_sdk::agent::AgentContext instead"
+)]
 #[derive(Clone, Debug)]
-pub struct AgentContext {
+pub struct LegacyAgentContext {
     /// 32-byte agent identifier
     pub agent_id: [u8; 32],
     /// SHA-256 hash of the agent's own code
@@ -18,92 +69,94 @@ pub struct AgentContext {
     pub execution_nonce: u64,
 }
 
-/// Canonical agent interface.
+/// Legacy agent trait interface.
 ///
-/// All agents must implement this trait. The kernel calls `run()`
-/// with the execution context and opaque inputs, and expects
-/// a structured `AgentOutput` containing ordered actions.
-///
-/// # Determinism Requirements
-///
-/// Implementations MUST be fully deterministic:
-/// - No randomness or time dependencies
-/// - No floating-point operations
-/// - No unordered iteration
-/// - Bounded loops and memory usage
+/// **DEPRECATED**: Implement `agent_main` function directly instead.
+/// This trait is kept for backward compatibility during the transition.
+#[deprecated(
+    since = "0.2.0",
+    note = "Implement extern \"Rust\" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput instead"
+)]
 pub trait Agent {
     /// Execute the agent with the given context and inputs.
-    ///
-    /// # Arguments
-    /// * `ctx` - Execution context with identity and state information
-    /// * `inputs` - Opaque agent-specific input data
-    ///
-    /// # Returns
-    /// * `Ok(AgentOutput)` - Structured output containing ordered actions
-    /// * `Err(AgentError)` - Execution failed, kernel will abort
-    fn run(ctx: &AgentContext, inputs: &[u8]) -> Result<AgentOutput, AgentError>;
+    fn run(ctx: &LegacyAgentContext, inputs: &[u8]) -> Result<kernel_core::AgentOutput, AgentError>;
 }
 
-/// Trivial reference agent implementation.
-///
-/// WARNING: This is NOT production-ready and exists only for testing.
-/// It converts input bytes into a single "echo" action.
-pub struct TrivialAgent;
+// ============================================================================
+// Reference Agent Implementations (behind feature flag)
+// ============================================================================
 
-/// Action type for echo action (used by TrivialAgent)
-pub const ACTION_TYPE_ECHO: u32 = 0x00000001;
+#[cfg(feature = "reference-agents")]
+mod reference_agents {
+    use super::*;
 
-impl Agent for TrivialAgent {
-    /// Converts input into a single echo action.
+    /// Action type for echo action (used by TrivialAgent)
+    pub const ACTION_TYPE_ECHO: u32 = 0x00000001;
+
+    /// Trivial reference agent implementation.
     ///
-    /// The action targets the agent's own ID and carries
-    /// the input as payload (truncated to max payload size).
-    fn run(ctx: &AgentContext, inputs: &[u8]) -> Result<AgentOutput, AgentError> {
-        // Truncate to max payload size if needed
-        let payload_len = inputs.len().min(kernel_core::MAX_ACTION_PAYLOAD_BYTES);
-        let payload = inputs[..payload_len].to_vec();
+    /// WARNING: This is NOT production-ready and exists only for testing.
+    /// It converts input bytes into a single "echo" action.
+    pub struct TrivialAgent;
 
-        let action = ActionV1 {
-            action_type: ACTION_TYPE_ECHO,
-            target: ctx.agent_id,
-            payload,
-        };
+    #[allow(deprecated)]
+    impl Agent for TrivialAgent {
+        /// Converts input into a single echo action.
+        ///
+        /// The action targets the agent's own ID and carries
+        /// the input as payload (truncated to max payload size).
+        fn run(ctx: &LegacyAgentContext, inputs: &[u8]) -> Result<kernel_core::AgentOutput, AgentError> {
+            // Truncate to max payload size if needed
+            let payload_len = inputs.len().min(kernel_core::MAX_ACTION_PAYLOAD_BYTES);
+            let payload = inputs[..payload_len].to_vec();
 
-        Ok(AgentOutput {
-            actions: vec![action],
-        })
-    }
-}
-
-/// No-op agent that produces no actions.
-///
-/// Useful for testing constraint enforcement with empty output.
-pub struct NoOpAgent;
-
-impl Agent for NoOpAgent {
-    fn run(_ctx: &AgentContext, _inputs: &[u8]) -> Result<AgentOutput, AgentError> {
-        Ok(AgentOutput { actions: vec![] })
-    }
-}
-
-/// Agent that produces multiple actions for testing.
-pub struct MultiActionAgent;
-
-impl Agent for MultiActionAgent {
-    /// Produces one action per byte of input (up to MAX_ACTIONS_PER_OUTPUT).
-    fn run(ctx: &AgentContext, inputs: &[u8]) -> Result<AgentOutput, AgentError> {
-        let action_count = inputs.len().min(MAX_ACTIONS_PER_OUTPUT);
-
-        let actions: Vec<ActionV1> = inputs[..action_count]
-            .iter()
-            .enumerate()
-            .map(|(i, &byte)| ActionV1 {
-                action_type: i as u32,
+            let action = ActionV1 {
+                action_type: ACTION_TYPE_ECHO,
                 target: ctx.agent_id,
-                payload: vec![byte],
-            })
-            .collect();
+                payload,
+            };
 
-        Ok(AgentOutput { actions })
+            Ok(kernel_core::AgentOutput {
+                actions: vec![action],
+            })
+        }
+    }
+
+    /// No-op agent that produces no actions.
+    ///
+    /// Useful for testing constraint enforcement with empty output.
+    pub struct NoOpAgent;
+
+    #[allow(deprecated)]
+    impl Agent for NoOpAgent {
+        fn run(_ctx: &LegacyAgentContext, _inputs: &[u8]) -> Result<kernel_core::AgentOutput, AgentError> {
+            Ok(kernel_core::AgentOutput { actions: vec![] })
+        }
+    }
+
+    /// Agent that produces multiple actions for testing.
+    pub struct MultiActionAgent;
+
+    #[allow(deprecated)]
+    impl Agent for MultiActionAgent {
+        /// Produces one action per byte of input (up to MAX_ACTIONS_PER_OUTPUT).
+        fn run(ctx: &LegacyAgentContext, inputs: &[u8]) -> Result<kernel_core::AgentOutput, AgentError> {
+            let action_count = inputs.len().min(MAX_ACTIONS_PER_OUTPUT);
+
+            let actions: Vec<ActionV1> = inputs[..action_count]
+                .iter()
+                .enumerate()
+                .map(|(i, &byte)| ActionV1 {
+                    action_type: i as u32,
+                    target: ctx.agent_id,
+                    payload: vec![byte],
+                })
+                .collect();
+
+            Ok(kernel_core::AgentOutput { actions })
+        }
     }
 }
+
+#[cfg(feature = "reference-agents")]
+pub use reference_agents::*;
