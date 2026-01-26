@@ -190,13 +190,26 @@ mod zkvm_tests {
                 .flat_map(|x| x.to_le_bytes())
                 .collect();
 
+            // Convert agent_id to hex for on-chain use
+            let agent_id_bytes: [u8; 32] = [0x42; 32];
+
+            // The on-chain verifier expects: [4-byte selector][256-byte seal]
+            // The selector is the first 4 bytes of verifier_parameters digest
+            let selector = &groth16_receipt.verifier_parameters.as_bytes()[..4];
+            let mut encoded_seal = Vec::with_capacity(4 + groth16_receipt.seal.len());
+            encoded_seal.extend_from_slice(selector);
+            encoded_seal.extend_from_slice(&groth16_receipt.seal);
+
             println!("\n=== On-chain verification data ===");
-            println!("seal (hex): 0x{}", hex::encode(&groth16_receipt.seal));
-            println!("seal length: {} bytes", groth16_receipt.seal.len());
+            println!("verifier_parameters: 0x{}", hex::encode(groth16_receipt.verifier_parameters.as_bytes()));
+            println!("selector (first 4 bytes): 0x{}", hex::encode(selector));
+            println!("seal (with selector, hex): 0x{}", hex::encode(&encoded_seal));
+            println!("seal length (with selector): {} bytes", encoded_seal.len());
             println!("journal (hex): 0x{}", hex::encode(&receipt.journal.bytes));
             println!("journal length: {} bytes", receipt.journal.bytes.len());
             println!("image_id (bytes32): 0x{}", hex::encode(&image_id_bytes));
             println!("image_id (u32[8]): {:?}", ZKVM_GUEST_ID);
+            println!("agent_id (bytes32): 0x{}", hex::encode(&agent_id_bytes));
         }
         println!("All assertions passed!");
     }
