@@ -130,6 +130,10 @@ pub mod prelude {
         ACTION_TYPE_CLOSE_POSITION,
         ACTION_TYPE_ADJUST_POSITION,
         ACTION_TYPE_SWAP,
+        // On-chain execution action types
+        ACTION_TYPE_CALL,
+        ACTION_TYPE_TRANSFER_ERC20,
+        ACTION_TYPE_NO_OP,
     };
 
     // Action constructors
@@ -139,6 +143,9 @@ pub mod prelude {
         close_position_action,
         adjust_position_action,
         swap_action,
+        // On-chain execution helpers
+        call_action,
+        address_to_bytes32,
     };
 
     // Payload decode helpers + types

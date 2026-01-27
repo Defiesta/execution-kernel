@@ -15,7 +15,9 @@ use kernel_core::{
 /// Echo/test action (TrivialAgent)
 pub const ACTION_TYPE_ECHO: u32 = 0x00000001;
 
-/// Open a new trading position
+/// Open a new trading position (kernel-internal action type)
+/// NOTE: This has the same value as ACTION_TYPE_CALL but different semantics.
+/// Use ACTION_TYPE_CALL for on-chain vault execution.
 pub const ACTION_TYPE_OPEN_POSITION: u32 = 0x00000002;
 
 /// Close an existing position
@@ -26,6 +28,20 @@ pub const ACTION_TYPE_ADJUST_POSITION: u32 = 0x00000004;
 
 /// Asset swap/exchange
 pub const ACTION_TYPE_SWAP: u32 = 0x00000005;
+
+// ============================================================================
+// On-Chain Execution Action Types (matches KernelOutputParser.sol)
+// ============================================================================
+
+/// CALL action type for on-chain execution via KernelVault
+/// Payload: abi.encode(uint256 value, bytes callData)
+pub const ACTION_TYPE_CALL: u32 = 0x00000002;
+
+/// ERC20 transfer action type for on-chain execution
+pub const ACTION_TYPE_TRANSFER_ERC20: u32 = 0x00000003;
+
+/// No-op action type (skipped during execution)
+pub const ACTION_TYPE_NO_OP: u32 = 0x00000004;
 
 /// SHA-256 hash of empty AgentOutput encoding [0x00, 0x00, 0x00, 0x00]
 pub const EMPTY_OUTPUT_COMMITMENT: [u8; 32] = [
@@ -374,14 +390,50 @@ fn validate_action(
             // Echo action has no specific constraints
             Ok(())
         }
-        ACTION_TYPE_OPEN_POSITION => {
-            validate_open_position(action, index, constraint_set)
+        // ACTION_TYPE_CALL and ACTION_TYPE_OPEN_POSITION share the same value (0x00000002)
+        // Distinguish by payload size: CALL >= 96 bytes (ABI-encoded), OPEN_POSITION = 45 bytes
+        ACTION_TYPE_CALL => {
+            if action.payload.len() >= 96 {
+                // CALL action (on-chain execution)
+                validate_call_action(action, index)
+            } else if action.payload.len() == OpenPositionPayload::SIZE {
+                // OPEN_POSITION action (kernel internal)
+                validate_open_position(action, index, constraint_set)
+            } else {
+                // Invalid payload size for either type
+                Err(ConstraintViolation::action(
+                    ConstraintViolationReason::InvalidActionPayload,
+                    index,
+                ))
+            }
         }
+        // ACTION_TYPE_TRANSFER_ERC20 and ACTION_TYPE_CLOSE_POSITION share value 0x00000003
         ACTION_TYPE_CLOSE_POSITION => {
-            validate_close_position(action, index)
+            if action.payload.len() == ClosePositionPayload::SIZE {
+                validate_close_position(action, index)
+            } else if action.payload.len() == 96 {
+                // ERC20 transfer (on-chain): abi.encode(address token, address to, uint256 amount)
+                validate_transfer_erc20_action(action, index)
+            } else {
+                Err(ConstraintViolation::action(
+                    ConstraintViolationReason::InvalidActionPayload,
+                    index,
+                ))
+            }
         }
+        // ACTION_TYPE_NO_OP and ACTION_TYPE_ADJUST_POSITION share value 0x00000004
         ACTION_TYPE_ADJUST_POSITION => {
-            validate_adjust_position(action, index, constraint_set)
+            if action.payload.is_empty() {
+                // NO_OP action
+                Ok(())
+            } else if action.payload.len() == AdjustPositionPayload::SIZE {
+                validate_adjust_position(action, index, constraint_set)
+            } else {
+                Err(ConstraintViolation::action(
+                    ConstraintViolationReason::InvalidActionPayload,
+                    index,
+                ))
+            }
         }
         ACTION_TYPE_SWAP => {
             validate_swap(action, index, constraint_set)
@@ -508,6 +560,97 @@ fn validate_swap(
     }
 
     Ok(())
+}
+
+/// Validate CALL action (on-chain execution).
+///
+/// Payload format: abi.encode(uint256 value, bytes callData)
+/// Minimum size: 96 bytes (32 value + 32 offset + 32 length + 0 calldata)
+fn validate_call_action(action: &ActionV1, index: usize) -> Result<(), ConstraintViolation> {
+    // Minimum payload size check
+    if action.payload.len() < 96 {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+
+    // Validate target is a valid EVM address (upper 12 bytes must be zero)
+    if action.target[0..12] != [0u8; 12] {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+
+    // Basic ABI structure validation:
+    // bytes 32-63 should contain offset (should be 64 = 0x40)
+    // bytes 64-95 should contain length of calldata
+    let offset = u256_from_be_bytes(&action.payload[32..64]);
+    if offset != 64 {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+
+    let calldata_len = u256_from_be_bytes(&action.payload[64..96]);
+    // Verify payload length matches declared calldata length (with 32-byte padding)
+    let expected_len = 96 + ((calldata_len as usize + 31) / 32) * 32;
+    if action.payload.len() != expected_len {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validate TRANSFER_ERC20 action (on-chain execution).
+///
+/// Payload format: abi.encode(address token, address to, uint256 amount)
+/// Size: exactly 96 bytes
+fn validate_transfer_erc20_action(action: &ActionV1, index: usize) -> Result<(), ConstraintViolation> {
+    if action.payload.len() != 96 {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+
+    // Validate addresses have proper padding (upper 12 bytes should be zero)
+    // Token address (bytes 0-31)
+    if action.payload[0..12] != [0u8; 12] {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+
+    // To address (bytes 32-63)
+    if action.payload[32..44] != [0u8; 12] {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+
+    Ok(())
+}
+
+/// Helper to read a u256 from big-endian bytes (only reads lower 64 bits for practical values)
+fn u256_from_be_bytes(bytes: &[u8]) -> u64 {
+    // For practical values, we only need to check if upper bytes are zero
+    // and read the lower 8 bytes
+    if bytes.len() != 32 {
+        return u64::MAX; // Invalid
+    }
+    // Check upper 24 bytes are zero (for values that fit in u64)
+    if bytes[0..24] != [0u8; 24] {
+        return u64::MAX; // Value too large
+    }
+    u64::from_be_bytes(bytes[24..32].try_into().unwrap())
 }
 
 /// Check if an asset is allowed.

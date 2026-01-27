@@ -14,7 +14,10 @@ edition = "2021"
 
 [dependencies]
 # The actual kernel-guest library with all its dependencies
-kernel-guest = { path = "../../kernel-guest", default-features = true }
+# IMPORTANT: Change the feature to match the agent you want to use:
+# - default-features = true -> uses example-agent
+# - features = ["example-yield-agent"] -> uses yield agent for Phase 3 E2E
+kernel-guest = { path = "../../kernel-guest", default-features = false, features = ["example-yield-agent"] }
 
 # RISC Zero zkVM guest runtime
 risc0-zkvm = { version = "3.0", default-features = false, features = ["std"] }

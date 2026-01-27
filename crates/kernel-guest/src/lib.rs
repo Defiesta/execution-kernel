@@ -43,6 +43,11 @@ use constraints::{enforce_constraints, ConstraintSetV1, EMPTY_OUTPUT_COMMITMENT}
 #[cfg(feature = "example-agent")]
 use example_agent::AGENT_CODE_HASH as LINKED_AGENT_CODE_HASH;
 
+// Import the agent code hash when example-yield-agent feature is enabled.
+// This constant is generated at build time by example-yield-agent's build.rs.
+#[cfg(feature = "example-yield-agent")]
+use example_yield_agent::AGENT_CODE_HASH as LINKED_AGENT_CODE_HASH;
+
 // ============================================================================
 // Agent Entrypoint Declaration
 // ============================================================================
@@ -141,10 +146,10 @@ pub fn kernel_main(input_bytes: &[u8]) -> Result<Vec<u8>, KernelError> {
     // matches the actual agent linked into this guest binary. Without this,
     // a malicious prover could claim they ran agent X but actually run agent Y.
     //
-    // When example-agent feature is enabled, we compare against the
-    // compile-time constant LINKED_AGENT_CODE_HASH from example_agent crate.
-    // When the feature is disabled, there is no linked agent to verify.
-    #[cfg(feature = "example-agent")]
+    // When an agent feature is enabled, we compare against the compile-time
+    // constant LINKED_AGENT_CODE_HASH from the agent crate.
+    // When no agent feature is enabled, there is no linked agent to verify.
+    #[cfg(any(feature = "example-agent", feature = "example-yield-agent"))]
     {
         if input.agent_code_hash != LINKED_AGENT_CODE_HASH {
             return Err(KernelError::AgentCodeHashMismatch);
@@ -245,7 +250,7 @@ pub fn kernel_main_with_constraints(
     }
 
     // 3. Verify agent code hash matches linked agent (P0.5 binding)
-    #[cfg(feature = "example-agent")]
+    #[cfg(any(feature = "example-agent", feature = "example-yield-agent"))]
     {
         if input.agent_code_hash != LINKED_AGENT_CODE_HASH {
             return Err(KernelError::AgentCodeHashMismatch);

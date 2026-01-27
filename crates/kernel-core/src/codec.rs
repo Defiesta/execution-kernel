@@ -610,16 +610,13 @@ impl CanonicalEncode for AgentOutput {
             return Err(CodecError::ArithmeticOverflow);
         }
 
-        // Sort actions into canonical order for deterministic encoding
-        let mut sorted_actions = self.actions.clone();
-        sorted_actions.sort();
-
+        // Preserve agent's action order (agent is responsible for deterministic ordering)
         // Track starting position to verify total size
         let start_len = out.len();
 
         put_u32_le(out, n as u32);
 
-        for action in &sorted_actions {
+        for action in &self.actions {
             let action_len = action.encoded_len()?;
             if action_len > MAX_SINGLE_ACTION_BYTES {
                 return Err(CodecError::ActionTooLarge {

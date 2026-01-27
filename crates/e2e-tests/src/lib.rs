@@ -28,6 +28,10 @@
 
 #![cfg_attr(not(feature = "risc0-e2e"), allow(dead_code))]
 
+// Phase 3 E2E Yield Tests
+#[cfg(feature = "phase3-e2e")]
+pub mod phase3_yield;
+
 use kernel_core::{
     compute_action_commitment, compute_input_commitment, AgentOutput, CanonicalDecode,
     CanonicalEncode, ExecutionStatus, KernelInputV1, KernelJournalV1, KERNEL_VERSION,

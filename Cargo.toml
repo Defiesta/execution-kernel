@@ -6,6 +6,7 @@ members = [
     "crates/constraints",
     "crates/kernel-sdk",
     "crates/example-agent",
+    "crates/example-yield-agent",
     "crates/host-tests",
     "crates/methods",
     "crates/e2e-tests",

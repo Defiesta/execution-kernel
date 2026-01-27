@@ -12,7 +12,7 @@ contract TestVerifyAndParse is Script {
     bytes32 constant IMAGE_ID = 0xb326f06dbfc60f5e72d2d7cddf94f7991cff99dfd67f69357713bb9f49c3d195;
     bytes32 constant AGENT_ID = 0x4242424242424242424242424242424242424242424242424242424242424242;
 
-    function run() external {
+    function run() external view {
         KernelExecutionVerifier verifier = KernelExecutionVerifier(VERIFIER_ADDRESS);
 
         // Seal from zkVM proof (with selector prefix 0x73c457ba)

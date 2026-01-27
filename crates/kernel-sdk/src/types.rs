@@ -77,6 +77,42 @@ pub const ACTION_TYPE_ADJUST_POSITION: u32 = 0x00000004;
 pub const ACTION_TYPE_SWAP: u32 = 0x00000005;
 
 // ============================================================================
+// On-Chain Execution Action Types
+// ============================================================================
+//
+// These action types are used for on-chain vault execution via KernelVault.sol.
+// They map to the action type constants in KernelOutputParser.sol.
+
+/// CALL action type for on-chain execution (0x00000002).
+///
+/// Used by KernelVault.execute() to perform arbitrary contract calls.
+/// Matches KernelOutputParser.sol ACTION_TYPE_CALL.
+///
+/// Payload schema (ABI-encoded):
+/// - `abi.encode(uint256 value, bytes callData)`
+///
+/// On-chain execution: `target.call{value: value}(callData)`
+///
+/// # Target Format
+///
+/// The target is a bytes32 with the EVM address left-padded:
+/// - Upper 12 bytes: 0x00 (must be zero for valid EVM address)
+/// - Lower 20 bytes: EVM address
+pub const ACTION_TYPE_CALL: u32 = 0x00000002;
+
+/// ERC20 transfer action type for on-chain execution (0x00000003).
+///
+/// Used by KernelVault.execute() to transfer ERC20 tokens.
+/// Matches KernelOutputParser.sol ACTION_TYPE_TRANSFER_ERC20.
+pub const ACTION_TYPE_TRANSFER_ERC20: u32 = 0x00000003;
+
+/// No-op action type (0x00000004).
+///
+/// Used for testing or placeholder actions that should be skipped.
+/// Matches KernelOutputParser.sol ACTION_TYPE_NO_OP.
+pub const ACTION_TYPE_NO_OP: u32 = 0x00000004;
+
+// ============================================================================
 // Payload Size Constants
 // ============================================================================
 
@@ -221,6 +257,88 @@ pub fn swap_action(
         target,
         payload,
     }
+}
+
+/// Create a CALL action for on-chain execution.
+///
+/// This creates an action that will be executed by KernelVault.execute()
+/// as: `target.call{value: value}(call_data)`
+///
+/// # Arguments
+/// * `target` - 32-byte target (EVM address left-padded with 12 zero bytes)
+/// * `value` - ETH value to send (in wei)
+/// * `call_data` - Raw calldata bytes (function selector + encoded args)
+///
+/// # Payload Format
+///
+/// The payload is ABI-encoded as: `abi.encode(uint256 value, bytes callData)`
+/// - bytes 0-31: value as uint256 (big-endian)
+/// - bytes 32-63: offset to bytes data (always 64)
+/// - bytes 64-95: length of callData
+/// - bytes 96+: callData (padded to 32-byte boundary)
+#[inline]
+#[must_use]
+pub fn call_action(target: [u8; 32], value: u128, call_data: &[u8]) -> ActionV1 {
+    ActionV1 {
+        action_type: ACTION_TYPE_CALL,
+        target,
+        payload: encode_call_payload(value, call_data),
+    }
+}
+
+/// Convert a 20-byte EVM address to bytes32 (left-padded).
+///
+/// The resulting bytes32 has:
+/// - Upper 12 bytes: 0x00
+/// - Lower 20 bytes: The EVM address
+#[inline]
+#[must_use]
+pub fn address_to_bytes32(addr: &[u8; 20]) -> [u8; 32] {
+    let mut result = [0u8; 32];
+    result[12..32].copy_from_slice(addr);
+    result
+}
+
+/// Encode a u256 value in big-endian format (for ABI encoding).
+#[inline]
+fn encode_u256_be(value: u128) -> [u8; 32] {
+    let mut result = [0u8; 32];
+    // Value fits in u128, so only fill lower 16 bytes (big-endian)
+    result[16..32].copy_from_slice(&value.to_be_bytes());
+    result
+}
+
+/// Encode the CALL payload: abi.encode(uint256 value, bytes callData)
+///
+/// ABI encoding for (uint256, bytes):
+/// - bytes 0-31: value (uint256, big-endian)
+/// - bytes 32-63: offset to bytes data (always 64 = 0x40)
+/// - bytes 64-95: length of bytes data
+/// - bytes 96+: bytes data (padded to 32-byte boundary)
+fn encode_call_payload(value: u128, call_data: &[u8]) -> Vec<u8> {
+    let data_len = call_data.len();
+    // Pad data to 32-byte boundary
+    let padded_len = ((data_len + 31) / 32) * 32;
+
+    // Total size: 32 (value) + 32 (offset) + 32 (length) + padded_data
+    let total_size = 96 + padded_len;
+    let mut payload = Vec::with_capacity(total_size);
+
+    // 1. uint256 value
+    payload.extend_from_slice(&encode_u256_be(value));
+
+    // 2. offset to bytes data (always 64 = 0x40)
+    payload.extend_from_slice(&encode_u256_be(64));
+
+    // 3. length of bytes data
+    payload.extend_from_slice(&encode_u256_be(data_len as u128));
+
+    // 4. bytes data (padded)
+    payload.extend_from_slice(call_data);
+    // Pad to 32-byte boundary
+    payload.resize(total_size, 0);
+
+    payload
 }
 
 // ============================================================================
