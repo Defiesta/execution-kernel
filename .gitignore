@@ -2,3 +2,4 @@ CLAUDE.md
 target/
 */target/
 /.claude
+/prompts

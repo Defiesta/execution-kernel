@@ -1,0 +1,28 @@
+# RISC Zero Guest Wrapper for kernel-guest
+#
+# This is a minimal wrapper crate that allows risc0-build to compile
+# kernel-guest as a zkVM guest program. It provides the main() entry point
+# that delegates to the wrapper crate's kernel_main function.
+
+[package]
+name = "zkvm-guest"
+version = "0.1.0"
+edition = "2021"
+
+# Required for risc0-build to recognize this as a standalone guest
+[workspace]
+
+[dependencies]
+# Wrapper crate that binds the yield agent to kernel-guest.
+# To use a different agent, change this to a different wrapper crate.
+kernel-guest-binding-yield = { path = "../../../agents/wrappers/kernel-guest-binding-yield" }
+
+# RISC Zero zkVM guest runtime
+risc0-zkvm = { version = "3.0", default-features = false, features = ["std"] }
+
+[features]
+default = []
+
+[profile.release]
+debug = 1
+lto = true

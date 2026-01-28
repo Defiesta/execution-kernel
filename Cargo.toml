@@ -1,14 +1,24 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/kernel-core",
-    "crates/kernel-guest",
-    "crates/constraints",
-    "crates/kernel-sdk",
-    "crates/example-agent",
-    "crates/host-tests",
-    "crates/methods",
-    "crates/e2e-tests",
+    # Protocol crates
+    "crates/protocol/kernel-core",
+    "crates/protocol/constraints",
+
+    # SDK crates
+    "crates/sdk/kernel-sdk",
+
+    # Runtime crates
+    "crates/runtime/kernel-guest",
+    "crates/runtime/risc0-methods",
+
+    # Agent crates
+    "crates/agents/examples/example-yield-agent",
+    "crates/agents/wrappers/kernel-guest-binding-yield",
+
+    # Testing crates
+    "crates/testing/kernel-host-tests",
+    "crates/testing/e2e-tests",
 ]
 
 [workspace.dependencies]

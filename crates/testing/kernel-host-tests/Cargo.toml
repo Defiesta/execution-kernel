@@ -1,0 +1,17 @@
+[package]
+name = "kernel-host-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kernel-core = { path = "../../protocol/kernel-core", features = ["std"] }
+kernel-guest = { path = "../../runtime/kernel-guest" }
+kernel-sdk = { path = "../../sdk/kernel-sdk" }
+constraints = { path = "../../protocol/constraints" }
+# Wrapper crate that binds yield-agent to kernel-guest
+kernel-guest-binding-yield = { path = "../../agents/wrappers/kernel-guest-binding-yield" }
+example-yield-agent = { path = "../../agents/examples/example-yield-agent" }
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

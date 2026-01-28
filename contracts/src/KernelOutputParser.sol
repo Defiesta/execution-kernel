@@ -47,6 +47,9 @@ library KernelOutputParser {
     /// @notice Action type for ERC20 transfer
     uint32 public constant ACTION_TYPE_TRANSFER_ERC20 = 0x00000003;
 
+    /// @notice Action type for no-op
+    uint32 public constant ACTION_TYPE_NO_OP = 0x00000004;
+
     // ============ Errors ============
 
     /// @notice Thrown when action count exceeds maximum

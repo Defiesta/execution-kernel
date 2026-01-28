@@ -1,0 +1,20 @@
+[package]
+name = "kernel-guest-binding-yield"
+version = "0.1.0"
+edition = "2021"
+description = "Wrapper crate binding example-yield-agent to kernel-guest"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+kernel-guest = { path = "../../../runtime/kernel-guest" }
+kernel-sdk = { path = "../../../sdk/kernel-sdk" }
+kernel-core = { path = "../../../protocol/kernel-core", default-features = false }
+constraints = { path = "../../../protocol/constraints" }
+example-yield-agent = { path = "../../examples/example-yield-agent" }
+
+[features]
+default = []
+risc0 = ["kernel-guest/risc0"]

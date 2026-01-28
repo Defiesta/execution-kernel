@@ -1,0 +1,18 @@
+[package]
+name = "kernel-guest"
+version = "0.1.0"
+edition = "2021"
+description = "Agent-agnostic kernel execution logic for zkVM"
+license = "Apache-2.0"
+
+[dependencies]
+kernel-core = { path = "../../protocol/kernel-core", default-features = false }
+kernel-sdk = { path = "../../sdk/kernel-sdk" }
+constraints = { path = "../../protocol/constraints" }
+
+# RISC Zero zkVM guest runtime (only needed when building for zkVM)
+risc0-zkvm = { version = "3.0", default-features = false, features = ["std"], optional = true }
+
+[features]
+default = []
+risc0 = ["dep:risc0-zkvm"]
