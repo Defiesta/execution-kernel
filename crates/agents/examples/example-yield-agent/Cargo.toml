@@ -1,0 +1,15 @@
+[package]
+name = "example-yield-agent"
+version = "0.1.0"
+edition = "2021"
+description = "Example yield agent for E2E testing with MockYieldSource integration"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+kernel-sdk = { path = "../../../sdk/kernel-sdk" }
+
+[build-dependencies]
+sha2 = "0.10"

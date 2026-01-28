@@ -24,6 +24,9 @@ contract KernelVault is ReentrancyGuard {
     /// @notice Action type for ERC20 transfer
     uint32 public constant ACTION_TYPE_TRANSFER_ERC20 = 0x00000003;
 
+    /// @notice Action type for no-op
+    uint32 public constant ACTION_TYPE_NO_OP = 0x00000004;
+
     /// @notice Maximum allowed gap between nonces for liveness (prevents stuck execution)
     /// @dev Allows operators to skip intermediate executions if needed (e.g., if nonce N is lost/stuck,
     ///      executions N+1 through N+MAX_NONCE_GAP can still proceed). This weakens strict ordering
@@ -46,11 +49,14 @@ contract KernelVault is ReentrancyGuard {
     /// @notice Total shares outstanding
     uint256 public totalShares;
 
-    /// @notice Shares balance per account
-    mapping(address => uint256) public shares;
+    /// @notice Last execution timestamp
+    uint256 public lastExecutionTimestamp;
 
     /// @notice Last execution nonce processed (for replay protection)
     uint64 public lastExecutionNonce;
+
+    /// @notice Shares balance per account
+    mapping(address => uint256) public shares;
 
     // ============ Events ============
 
@@ -67,6 +73,9 @@ contract KernelVault is ReentrancyGuard {
 
     /// @notice Emitted when an action is executed
     event ActionExecuted(uint256 indexed actionIndex, uint32 actionType, bytes32 target, bool success);
+
+    /// @notice Emitted when a no-op action is executed
+    event NoOpActionExecuted(uint256 indexed actionIndex, uint32 actionType);
 
     /// @notice Emitted when a transfer action is executed (more detailed than ActionExecuted)
     /// @dev For transfers, `to` is the meaningful recipient (ActionExecuted.target is the token address)
@@ -122,6 +131,15 @@ contract KernelVault is ReentrancyGuard {
     /// @notice Zero assets out calculated
     error ZeroAssetsOut();
 
+    /// @notice ETH deposit amount doesn't match msg.value
+    error ETHDepositMismatch(uint256 expected, uint256 actual);
+
+    /// @notice ETH transfer failed
+    error ETHTransferFailed();
+
+    /// @notice Wrong deposit function called for this vault type
+    error WrongDepositFunction();
+
     // ============ Constructor ============
 
     /// @notice Initialize the vault
@@ -136,17 +154,18 @@ contract KernelVault is ReentrancyGuard {
 
     // ============ Deposit/Withdraw ============
 
-    /// @notice Deposit tokens and receive shares based on current PPS
-    /// @param assets Amount of tokens to deposit
+    /// @notice Deposit ERC20 tokens and receive shares based on current PPS
+    /// @param assets Amount of ERC20 tokens to deposit
     /// @return sharesMinted Number of shares minted based on current exchange rate
     /// @dev MVP uses simple PPS math. First deposit is 1:1, subsequent deposits use
     ///      shares = assets * totalShares / totalAssets.
-    function deposit(uint256 assets) external nonReentrant returns (uint256 sharesMinted) {
+    function depositERC20Tokens(uint256 assets) external nonReentrant returns (uint256 sharesMinted) {
+        if (address(asset) == address(0)) revert WrongDepositFunction();
         if (assets == 0) revert ZeroDeposit();
 
-        // IMPORTANT: Calculate shares BEFORE transfer (use pre-transfer totalAssets)
+        // Calculate shares BEFORE transfer (use pre-transfer totalAssets)
         uint256 supply = totalShares;
-        uint256 assetsBefore = totalAssets();
+        uint256 assetsBefore = asset.balanceOf(address(this));
 
         if (supply == 0) {
             // First deposit: 1:1 ratio
@@ -169,7 +188,38 @@ contract KernelVault is ReentrancyGuard {
         emit Deposit(msg.sender, assets, sharesMinted);
     }
 
-    /// @notice Withdraw tokens by burning shares based on current PPS
+    /// @notice Deposit ETH and receive shares based on current PPS
+    /// @return sharesMinted Number of shares minted based on current exchange rate
+    /// @dev MVP uses simple PPS math. First deposit is 1:1, subsequent deposits use
+    ///      shares = msg.value * totalShares / totalAssets.
+    ///      Only works when vault asset is address(0) (ETH vault).
+    function depositETH() external payable nonReentrant returns (uint256 sharesMinted) {
+        if (address(asset) != address(0)) revert WrongDepositFunction();
+        if (msg.value == 0) revert ZeroDeposit();
+
+        // Calculate shares BEFORE transfer
+        // msg.value is already added to balance, so subtract it for pre-transfer calculation
+        uint256 supply = totalShares;
+        uint256 assetsBefore = address(this).balance - msg.value;
+
+        if (supply == 0) {
+            // First deposit: 1:1 ratio
+            sharesMinted = msg.value;
+        } else {
+            // Subsequent deposits: standard PPS calculation
+            if (assetsBefore == 0) revert ZeroAssets();
+            sharesMinted = (msg.value * supply) / assetsBefore;
+            if (sharesMinted == 0) revert ZeroShares();
+        }
+
+        // Update state
+        shares[msg.sender] += sharesMinted;
+        totalShares += sharesMinted;
+
+        emit Deposit(msg.sender, msg.value, sharesMinted);
+    }
+
+    /// @notice Withdraw tokens (or ETH if asset is address(0)) by burning shares based on current PPS
     /// @param shareAmount Number of shares to burn
     /// @return assetsOut Amount of tokens returned based on current exchange rate
     function withdraw(uint256 shareAmount) external nonReentrant returns (uint256 assetsOut) {
@@ -190,9 +240,15 @@ contract KernelVault is ReentrancyGuard {
         shares[msg.sender] -= shareAmount;
         totalShares -= shareAmount;
 
-        // Transfer tokens
-        bool success = asset.transfer(msg.sender, assetsOut);
-        if (!success) revert TransferFailed();
+        // Transfer tokens or ETH
+        bool isETH = address(asset) == address(0);
+        if (isETH) {
+            (bool success, ) = msg.sender.call{value: assetsOut}("");
+            if (!success) revert ETHTransferFailed();
+        } else {
+            bool success = asset.transfer(msg.sender, assetsOut);
+            if (!success) revert TransferFailed();
+        }
 
         emit Withdraw(msg.sender, assetsOut, shareAmount);
     }
@@ -258,16 +314,21 @@ contract KernelVault is ReentrancyGuard {
     /// @param index Action index (for events)
     /// @param action The action to execute
     function _executeAction(uint256 index, KernelOutputParser.Action memory action) internal {
+        
+        lastExecutionTimestamp = block.timestamp;
+
         if (action.actionType == ACTION_TYPE_TRANSFER_ERC20) {
             _executeTransferERC20(index, action);
         } else if (action.actionType == ACTION_TYPE_CALL) {
             _executeCall(index, action);
+        } else if (action.actionType == ACTION_TYPE_NO_OP) {
+            emit NoOpActionExecuted(index, action.actionType);
         } else {
             revert UnknownActionType(action.actionType);
         }
     }
 
-    /// @notice Execute a TRANSFER_ERC20 action
+    /// @notice Execute a TRANSFER_ERC20 action (also handles ETH if token is address(0))
     /// @dev Payload format: abi.encode(address token, address to, uint256 amount)
     ///      MVP: only allows transfers of the vault's single asset
     function _executeTransferERC20(uint256 index, KernelOutputParser.Action memory action) internal {
@@ -283,9 +344,16 @@ contract KernelVault is ReentrancyGuard {
             revert InvalidTransferPayload();
         }
 
-        // Execute transfer
-        bool success = IERC20(token).transfer(to, amount);
-        if (!success) revert TransferFailed();
+        // Execute transfer (ETH or ERC20)
+        if (token == address(0)) {
+            // ETH transfer
+            (bool success, ) = to.call{value: amount}("");
+            if (!success) revert ETHTransferFailed();
+        } else {
+            // ERC20 transfer
+            bool success = IERC20(token).transfer(to, amount);
+            if (!success) revert TransferFailed();
+        }
 
         // Emit detailed transfer event (includes recipient `to` for better observability)
         emit TransferExecuted(index, token, to, amount);
@@ -321,8 +389,11 @@ contract KernelVault is ReentrancyGuard {
     // ============ View Functions ============
 
     /// @notice Returns total assets held by the vault
-    /// @return Total balance of the vault's asset
+    /// @return Total balance of the vault's asset (ETH balance if asset is address(0))
     function totalAssets() public view returns (uint256) {
+        if (address(asset) == address(0)) {
+            return address(this).balance;
+        }
         return asset.balanceOf(address(this));
     }
 

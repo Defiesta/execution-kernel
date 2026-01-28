@@ -12,18 +12,43 @@ This repository implements the **Canonical zkVM Guest Program**. The kernel prov
 
 ## Architecture
 
-The project is organized as a Rust workspace with the following crates:
+The project is organized as a Rust workspace:
 
-| Crate | Description |
-|-------|-------------|
-| `kernel-core` | Core types, deterministic binary codec, and SHA-256 hashing |
-| `kernel-guest` | RISC Zero guest binary implementation |
-| `kernel-sdk` | Canonical agent interface and SDK |
-| `constraints` | Constraint engine with action validation, asset whitelists, position limits |
-| `example-agent` | Reference agent implementation with `agent_main` entrypoint |
-| `methods` | RISC Zero build crate - exports `ZKVM_GUEST_ELF` and `ZKVM_GUEST_ID` |
-| `e2e-tests` | End-to-end zkVM proof tests |
-| `host-tests` | Unit test suite (92 tests) |
+```
+crates/
+├── protocol/                    # Core protocol types
+│   ├── kernel-core/             # Types, deterministic codec, SHA-256 hashing
+│   └── constraints/             # Constraint engine with action validation
+├── sdk/
+│   └── kernel-sdk/              # Agent development SDK
+├── runtime/                     # zkVM execution
+│   ├── kernel-guest/            # Agent-agnostic kernel execution logic
+│   └── risc0-methods/           # RISC Zero build - exports ELF and IMAGE_ID
+├── agents/
+│   ├── examples/
+│   │   └── example-yield-agent/ # Yield farming agent implementation
+│   └── wrappers/
+│       └── kernel-guest-binding-yield/  # Binds yield agent to kernel
+└── testing/
+    ├── kernel-host-tests/       # Unit test suite
+    └── e2e-tests/               # End-to-end zkVM proof tests
+```
+
+### Agent-Agnostic Design
+
+The kernel uses trait-based dependency injection, allowing new agents without modifying kernel code:
+
+```rust
+pub trait AgentEntrypoint {
+    fn code_hash(&self) -> [u8; 32];
+    fn run(&self, ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput;
+}
+
+// Execute kernel with any agent
+let journal = kernel_main_with_agent(&input_bytes, &MyAgent)?;
+```
+
+Wrapper crates (e.g., `kernel-guest-binding-yield`) bind specific agents to the kernel.
 
 ## Protocol Constants
 
@@ -39,7 +64,7 @@ The project is organized as a Rust workspace with the following crates:
 # Build all crates
 cargo build --release
 
-# Build with zkVM features (when RISC Zero dependencies are available)
+# Build with zkVM features
 cargo build --release --features risc0
 ```
 
@@ -53,11 +78,6 @@ cargo test
 
 # Run tests with verbose output
 cargo test -- --nocapture
-
-# Run specific test categories
-cargo test test_determinism
-cargo test test_golden_vector
-cargo test test_constraint
 ```
 
 ### E2E zkVM Proof Tests
@@ -69,40 +89,38 @@ End-to-end tests that generate actual RISC Zero proofs:
 cargo install cargo-risczero
 cargo risczero install
 
-# Run E2E proof tests (requires RISC Zero)
-cargo test -p e2e-tests --features risc0-e2e -- --test-threads=1 --nocapture
+# Run E2E proof tests
+cargo test -p e2e-tests --features risc0-e2e -- --nocapture
 ```
 
-**Note:** Use `--test-threads=1` to avoid parallel proof generation exhausting memory.
+### On-Chain E2E Test
 
-### Guest Program Flow
+Full end-to-end test with on-chain verification on Sepolia testnet.
 
-1. Read input from zkVM environment
-2. Decode and validate `KernelInputV1`
-3. Verify protocol version and agent code hash
-4. Compute input commitment
-5. Execute agent via `agent_main()` entrypoint
-6. Enforce constraints (mandatory, unskippable)
-7. Construct canonical journal (Success or Failure)
-8. Commit journal or abort on hard error
+See [e2e-tests/README.md](crates/testing/e2e-tests/README.md) for detailed instructions.
 
-## On-Chain Verification
+## On-Chain Deployment (Sepolia)
 
-The E2E tests extract data needed for Solidity verifier integration:
+| Contract | Address |
+|----------|---------|
+| KernelExecutionVerifier | `0x9Ef5bAB590AFdE8036D57b89ccD2947D4E3b1EFA` |
+| KernelVault | `0xAdeDA97D2D07C7f2e332fD58F40Eb4f7F0192be7` |
+| MockYieldSource | `0x7B35E3F2e810170f146d31b00262b9D7138F9b39` |
+| RISC Zero Verifier Router | `0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187` |
 
-```rust
-// From receipt after proof generation
-seal: bytes      // 256-byte Groth16 proof
-journal: bytes   // KernelJournalV1 (variable length)
-imageId: bytes32 // ZKVM_GUEST_ID (guest identity)
-```
+### Yield Agent Registration
+
+| Field | Value |
+|-------|-------|
+| IMAGE_ID | `0x5f42241afd61bf9e341442c8baffa9c544cf20253720f2540cf6705f27bae2c4` |
+| AGENT_CODE_HASH | `0x5aac6b1fedf1b0c0ccc037c3223b7b5c8b679f48b9c599336c0dc777be88924b` |
+| AGENT_ID | `0x0000000000000000000000000000000000000000000000000000000000000001` |
 
 ## Usage
 
 ### Quick Start
 
 ```bash
-# Clone and test the implementation
 git clone https://github.com/Defiesta/execution-kernel.git
 cd execution-kernel
 cargo test
@@ -117,33 +135,45 @@ let input = KernelInputV1 {
     protocol_version: PROTOCOL_VERSION,
     kernel_version: KERNEL_VERSION,
     agent_id: [0x42; 32],
-    agent_code_hash: example_agent::AGENT_CODE_HASH,  // Must match linked agent
+    agent_code_hash: example_yield_agent::AGENT_CODE_HASH,
     constraint_set_hash: [0xbb; 32],
     input_root: [0xcc; 32],
     execution_nonce: 1,
-    opaque_agent_inputs: vec![1, 2, 3, 4, 5],  // Max 64KB
+    opaque_agent_inputs: vec![/* 48 bytes for yield agent */],
 };
 
-let input_bytes = input.encode()?;  // Deterministic binary encoding
+let input_bytes = input.encode()?;
 ```
 
 ### Running the Kernel
 
 ```rust
-use kernel_guest::kernel_main;
+use kernel_guest::kernel_main_with_agent;
+use kernel_guest_binding_yield::YieldAgentWrapper;
 use kernel_core::*;
 
-// Execute kernel with encoded input
-let journal_bytes = kernel_main(&input_bytes)?;
+// Execute kernel with yield agent
+let journal_bytes = kernel_main_with_agent(&input_bytes, &YieldAgentWrapper)?;
 
 // Decode the resulting journal
 let journal = KernelJournalV1::decode(&journal_bytes)?;
 
 // Journal contains:
 // - input_commitment: SHA256(input_bytes)
-// - action_commitment: SHA256(agent_output_bytes) or empty commitment on failure
+// - action_commitment: SHA256(agent_output_bytes)
 // - execution_status: Success (0x01) or Failure (0x02)
 ```
+
+### Guest Program Flow
+
+1. Read input from zkVM environment
+2. Decode and validate `KernelInputV1`
+3. Verify protocol version and agent code hash
+4. Compute input commitment
+5. Execute agent via `AgentEntrypoint::run()`
+6. Enforce constraints (mandatory, unskippable)
+7. Construct canonical journal (Success or Failure)
+8. Commit journal or abort on hard error
 
 ## Consensus-Critical Properties
 
@@ -159,18 +189,6 @@ This implementation prioritizes **determinism and correctness over convenience**
 
 Any deviation from these principles breaks protocol consensus.
 
-## Development
-
-### Documentation
-
-- `docs/P0.1_DOCUMENTATION.md` - Foundational concepts and design rationale
-- `docs/P0.2_DOCUMENTATION.md` - Canonical codec specification
-- `docs/P0.3_DOCUMENTATION.md` - Constraint system documentation
-- `spec/codec.md` - Wire format specification
-- `spec/constraints.md` - Constraint system specification
-- `spec/sdk.md` - Kernel SDK specification
-- `spec/e2e-tests.md` - E2E testing specification
-
 ## Security Considerations
 
 The kernel assumes a **malicious host environment** and defends against:
@@ -181,11 +199,8 @@ The kernel assumes a **malicious host environment** and defends against:
 - **Non-determinism exploitation** - Strict deterministic execution requirements
 - **Protocol version confusion** - Explicit version validation on all inputs
 - **Encoding malleability** - Exact payload lengths, trailing bytes rejected
-- **Timestamp overflow attacks** - Checked arithmetic for cooldown calculations
 
 All security properties are enforced cryptographically through zkVM proofs.
-
-**Note:** The `action.target` field is not validated by the constraint engine. Executor contracts are responsible for target validation.
 
 ## License
 
