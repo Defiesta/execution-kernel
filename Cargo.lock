@@ -1941,12 +1941,11 @@ dependencies = [
  "alloy",
  "constraints",
  "dotenvy",
- "example-agent",
  "example-yield-agent",
  "hex",
  "kernel-core",
  "kernel-sdk",
- "methods",
+ "risc0-methods",
  "risc0-zkvm",
  "tokio",
 ]
@@ -2094,14 +2093,6 @@ checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "example-agent"
-version = "0.1.0"
-dependencies = [
- "kernel-sdk",
- "sha2",
 ]
 
 [[package]]
@@ -2567,19 +2558,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "host-tests"
-version = "0.1.0"
-dependencies = [
- "constraints",
- "example-agent",
- "kernel-core",
- "kernel-guest",
- "kernel-sdk",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3023,11 +3001,34 @@ name = "kernel-guest"
 version = "0.1.0"
 dependencies = [
  "constraints",
- "example-agent",
- "example-yield-agent",
  "kernel-core",
  "kernel-sdk",
  "risc0-zkvm",
+]
+
+[[package]]
+name = "kernel-guest-binding-yield"
+version = "0.1.0"
+dependencies = [
+ "constraints",
+ "example-yield-agent",
+ "kernel-core",
+ "kernel-guest",
+ "kernel-sdk",
+]
+
+[[package]]
+name = "kernel-host-tests"
+version = "0.1.0"
+dependencies = [
+ "constraints",
+ "example-yield-agent",
+ "kernel-core",
+ "kernel-guest",
+ "kernel-guest-binding-yield",
+ "kernel-sdk",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3287,13 +3288,6 @@ dependencies = [
  "log",
  "objc",
  "paste",
-]
-
-[[package]]
-name = "methods"
-version = "0.1.0"
-dependencies = [
- "risc0-build",
 ]
 
 [[package]]
@@ -4438,6 +4432,13 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tracing",
+]
+
+[[package]]
+name = "risc0-methods"
+version = "0.1.0"
+dependencies = [
+ "risc0-build",
 ]
 
 [[package]]
