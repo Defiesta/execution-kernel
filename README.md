@@ -175,6 +175,31 @@ let journal = KernelJournalV1::decode(&journal_bytes)?;
 7. Construct canonical journal (Success or Failure)
 8. Commit journal or abort on hard error
 
+## Agent Pack
+
+Agent Pack is a portable bundle format for distributing verifiable agents. It allows third-party developers to package their agents with all cryptographic commitments needed for offline verification.
+
+### Installation
+
+```bash
+cargo install --path crates/agent-pack --features risc0
+```
+
+### Quick Start
+
+```bash
+# Initialize a new manifest
+agent-pack init --name my-agent --version 1.0.0 --agent-id 0x0000...0042
+
+# Compute hashes from ELF binary
+agent-pack compute --elf target/riscv-guest/.../zkvm-guest --out dist/agent-pack.json
+
+# Verify the manifest
+agent-pack verify --manifest dist/agent-pack.json
+```
+
+See [docs/agent-pack.md](docs/agent-pack.md) for full documentation.
+
 ## Consensus-Critical Properties
 
 This implementation prioritizes **determinism and correctness over convenience**:

@@ -1,0 +1,34 @@
+{
+  "format_version": "1",
+  "agent_name": "yield-agent",
+  "agent_version": "0.1.0",
+  "agent_id": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "protocol_version": 1,
+  "kernel_version": 1,
+  "risc0_version": "3.0.4",
+  "rust_toolchain": "1.75.0",
+  "agent_code_hash": "0x5aac6b1fedf1b0c0ccc037c3223b7b5c8b679f48b9c599336c0dc777be88924b",
+  "image_id": "0x5f42241afd61bf9e341442c8baffa9c544cf20253720f2540cf6705f27bae2c4",
+  "artifacts": {
+    "elf_path": "artifacts/zkvm-guest.elf",
+    "elf_sha256": "0xa1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+  },
+  "build": {
+    "cargo_lock_sha256": "0xf1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2d3c4b5a6f1e2",
+    "build_command": "RISC0_USE_DOCKER=1 cargo build --release -p risc0-methods",
+    "reproducible": true
+  },
+  "inputs": "48-byte payload: vault(20) || yield_source(20) || amount(8)",
+  "actions_profile": "Produces 2 CALL actions: deposit then withdraw",
+  "networks": {
+    "sepolia": {
+      "verifier": "0x9Ef5bAB590AFdE8036D57b89ccD2947D4E3b1EFA",
+      "vault": "0xAdeDA97D2D07C7f2e332fD58F40Eb4f7F0192be7"
+    }
+  },
+  "git": {
+    "repo": "https://github.com/Defiesta/execution-kernel",
+    "commit": "ed3ee50"
+  },
+  "notes": "Example yield agent for testing purposes"
+}
