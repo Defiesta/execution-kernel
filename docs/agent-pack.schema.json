@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Defiesta/execution-kernel/agent-pack.schema.json",
+  "title": "Agent Pack Manifest",
+  "description": "Schema for Agent Pack manifest files - portable bundles for verifiable agent distribution",
+  "type": "object",
+  "required": [
+    "format_version",
+    "agent_name",
+    "agent_version",
+    "agent_id",
+    "protocol_version",
+    "kernel_version",
+    "risc0_version",
+    "rust_toolchain",
+    "agent_code_hash",
+    "image_id",
+    "artifacts",
+    "build",
+    "inputs",
+    "actions_profile"
+  ],
+  "properties": {
+    "format_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Format version of the Agent Pack manifest"
+    },
+    "agent_name": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Human-readable agent name (lowercase, alphanumeric, hyphens)"
+    },
+    "agent_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version of the agent (semver format)"
+    },
+    "agent_id": {
+      "$ref": "#/$defs/hex32",
+      "description": "32-byte agent identifier registered on-chain"
+    },
+    "protocol_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Protocol version this agent targets"
+    },
+    "kernel_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Kernel version this agent was built for"
+    },
+    "risc0_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+(\\.\\d+)?$",
+      "description": "RISC Zero zkVM version used for compilation"
+    },
+    "rust_toolchain": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Rust toolchain version used for compilation"
+    },
+    "agent_code_hash": {
+      "$ref": "#/$defs/hex32",
+      "description": "SHA-256 hash of the agent code computed by build.rs"
+    },
+    "image_id": {
+      "$ref": "#/$defs/hex32",
+      "description": "RISC Zero IMAGE_ID computed from the ELF binary"
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["elf_path", "elf_sha256"],
+      "properties": {
+        "elf_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative path to the ELF binary"
+        },
+        "elf_sha256": {
+          "$ref": "#/$defs/hex32",
+          "description": "SHA-256 hash of the ELF binary"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Build artifact information"
+    },
+    "build": {
+      "type": "object",
+      "required": ["cargo_lock_sha256", "build_command", "reproducible"],
+      "properties": {
+        "cargo_lock_sha256": {
+          "$ref": "#/$defs/hex32",
+          "description": "SHA-256 hash of Cargo.lock for dependency verification"
+        },
+        "build_command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command used to build the agent"
+        },
+        "reproducible": {
+          "type": "boolean",
+          "description": "Whether the build is reproducible (e.g., using Docker)"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Build configuration for reproducibility"
+    },
+    "inputs": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description of expected input format"
+    },
+    "actions_profile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable description of actions produced by the agent"
+    },
+    "networks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["verifier"],
+        "properties": {
+          "verifier": {
+            "$ref": "#/$defs/ethAddress",
+            "description": "Address of the RISC Zero verifier contract"
+          },
+          "vault": {
+            "$ref": "#/$defs/ethAddress",
+            "description": "Address of the vault or target contract"
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Network-specific deployment addresses"
+    },
+    "git": {
+      "type": "object",
+      "required": ["repo", "commit"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "uri",
+          "description": "Git repository URL"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{7,40}$",
+          "description": "Git commit hash (short or full)"
+        }
+      },
+      "additionalProperties": false,
+      "description": "Git repository information for source traceability"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes or comments about the agent"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "hex32": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{64}$",
+      "description": "32-byte hex string with 0x prefix (64 hex characters)"
+    },
+    "ethAddress": {
+      "type": "string",
+      "pattern": "^0x[a-fA-F0-9]{40}$",
+      "description": "Ethereum address with 0x prefix (40 hex characters)"
+    }
+  }
+}

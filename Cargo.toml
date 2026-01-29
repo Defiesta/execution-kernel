@@ -19,6 +19,9 @@ members = [
     # Testing crates
     "crates/testing/kernel-host-tests",
     "crates/testing/e2e-tests",
+
+    # Tools
+    "crates/agent-pack",
 ]
 
 [workspace.dependencies]
