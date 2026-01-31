@@ -1,11 +1,11 @@
 //! Agent Pack CLI - Create and verify agent bundles.
 
+#[cfg(feature = "onchain")]
+use agent_pack::onchain::{verify_onchain_with_timeout, OnchainError, OnchainVerifyResult};
 use agent_pack::{
     format_hex, pack_bundle, sha256_file, validate_hex_32, verify_manifest_structure,
     verify_manifest_with_files, AgentPackManifest, PackOptions,
 };
-#[cfg(feature = "onchain")]
-use agent_pack::onchain::{verify_onchain_with_timeout, OnchainError, OnchainVerifyResult};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use std::process::ExitCode;

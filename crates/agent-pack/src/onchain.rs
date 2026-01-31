@@ -103,8 +103,14 @@ pub async fn verify_onchain(
     agent_id: &str,
     expected_image_id: &str,
 ) -> Result<OnchainVerifyResult, OnchainError> {
-    verify_onchain_with_timeout(rpc_url, verifier_address, agent_id, expected_image_id, 30000)
-        .await
+    verify_onchain_with_timeout(
+        rpc_url,
+        verifier_address,
+        agent_id,
+        expected_image_id,
+        30000,
+    )
+    .await
 }
 
 /// Verifies that an agent's image_id matches the on-chain registry with custom timeout.
@@ -220,7 +226,10 @@ mod tests {
     fn test_parse_address_invalid() {
         let addr = "not-an-address";
         let result = parse_address(addr);
-        assert!(matches!(result, Err(OnchainError::InvalidVerifierAddress(_))));
+        assert!(matches!(
+            result,
+            Err(OnchainError::InvalidVerifierAddress(_))
+        ));
     }
 
     #[test]

@@ -49,7 +49,10 @@ fn test_verify_result_mismatch_inequality() {
 
 #[test]
 fn test_verify_result_different_variants() {
-    assert_ne!(OnchainVerifyResult::Match, OnchainVerifyResult::NotRegistered);
+    assert_ne!(
+        OnchainVerifyResult::Match,
+        OnchainVerifyResult::NotRegistered
+    );
 }
 
 /// Test error type display implementations.
@@ -143,7 +146,11 @@ mod exit_code_tests {
         for (i, &code1) in codes.iter().enumerate() {
             for (j, &code2) in codes.iter().enumerate() {
                 if i != j {
-                    assert_ne!(code1, code2, "Exit codes {} and {} should be distinct", i, j);
+                    assert_ne!(
+                        code1, code2,
+                        "Exit codes {} and {} should be distinct",
+                        i, j
+                    );
                 }
             }
         }
@@ -166,16 +173,14 @@ mod parsing_edge_cases {
     #[test]
     fn test_bytes32_must_be_32_bytes() {
         // Valid bytes32 values are 32 bytes (64 hex chars + 0x prefix)
-        let valid_bytes32 =
-            "0x0000000000000000000000000000000000000000000000000000000000000001";
+        let valid_bytes32 = "0x0000000000000000000000000000000000000000000000000000000000000001";
         assert_eq!(valid_bytes32.len(), 66); // 2 for "0x" + 64 hex chars
     }
 
     #[test]
     fn test_zero_bytes32_representation() {
         // bytes32(0) is all zeros
-        let zero =
-            "0x0000000000000000000000000000000000000000000000000000000000000000";
+        let zero = "0x0000000000000000000000000000000000000000000000000000000000000000";
         assert!(zero.chars().skip(2).all(|c| c == '0'));
     }
 }
@@ -200,8 +205,7 @@ mod manifest_validation {
     #[test]
     fn test_real_manifest_should_not_have_todo() {
         // A valid manifest for on-chain verification should have real values
-        let valid_image_id =
-            "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+        let valid_image_id = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
         assert!(!valid_image_id.contains("TODO"));
     }
 }
