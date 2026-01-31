@@ -135,7 +135,9 @@ pub fn compute_yield_commitment(vault: [u8; 20], yield_source: [u8; 20], amount:
 mod zkvm_tests {
     use super::*;
     use constraints::EMPTY_OUTPUT_COMMITMENT;
-    use kernel_core::{CanonicalDecode, ExecutionStatus, KernelJournalV1};
+    use kernel_core::{
+        compute_input_commitment, CanonicalDecode, ExecutionStatus, KernelJournalV1,
+    };
     use risc0_methods::{ZKVM_GUEST_ELF, ZKVM_GUEST_ID};
     use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts};
 

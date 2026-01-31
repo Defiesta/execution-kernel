@@ -1,0 +1,50 @@
+[package]
+name = "reference-integrator"
+version = "0.1.0"
+edition = "2021"
+description = "Reference implementation for integrating with Agent Pack bundles"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "refint"
+path = "src/bin/refint.rs"
+required-features = ["cli"]
+
+[dependencies]
+# Core protocol types
+kernel-core = { path = "../protocol/kernel-core", features = ["std"] }
+
+# Bundle verification (reuse agent-pack)
+agent-pack = { path = "../agent-pack" }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Hex encoding/decoding
+hex = "0.4"
+
+# Error handling
+thiserror = "2"
+
+# CLI (optional)
+clap = { version = "4", features = ["derive"], optional = true }
+
+# On-chain verification and execution (optional)
+alloy = { version = "0.8", features = ["providers", "transports", "contract", "signer-local"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"], optional = true }
+
+# Proving (optional) - use risc0-zkvm for proof generation
+risc0-zkvm = { version = "3.0", optional = true, default-features = false, features = ["prove"] }
+
+[dev-dependencies]
+tempfile = "3"
+hex-literal = "0.4"
+
+[features]
+default = ["cli"]
+cli = ["dep:clap"]
+onchain = ["dep:alloy", "dep:tokio", "agent-pack/onchain"]
+prove = ["dep:risc0-zkvm"]
+# Full feature set for marketplace integration
+full = ["cli", "onchain", "prove"]

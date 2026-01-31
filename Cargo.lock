@@ -4239,6 +4239,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "reference-integrator"
+version = "0.1.0"
+dependencies = [
+ "agent-pack",
+ "alloy",
+ "clap",
+ "hex",
+ "hex-literal",
+ "kernel-core",
+ "risc0-zkvm",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "regex"
 version = "1.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
