@@ -205,7 +205,10 @@ pub fn verify_manifest_with_files(
             }
         }
         Err(e) => {
-            report.add_warning(format!("Could not read ELF file for hash verification: {}", e));
+            report.add_warning(format!(
+                "Could not read ELF file for hash verification: {}",
+                e
+            ));
         }
     }
 
@@ -245,7 +248,7 @@ pub fn verify_manifest_with_files(
 /// Accepts versions like "1.0.0", "0.1.0-alpha", "2.0.0-rc.1+build.123"
 fn is_valid_semver(version: &str) -> bool {
     // Basic format: MAJOR.MINOR.PATCH with optional prerelease and build metadata
-    let parts: Vec<&str> = version.split(|c| c == '-' || c == '+').collect();
+    let parts: Vec<&str> = version.split(['-', '+']).collect();
 
     if parts.is_empty() {
         return false;
@@ -283,21 +286,18 @@ mod tests {
             kernel_version: 1,
             risc0_version: "3.0.4".to_string(),
             rust_toolchain: "1.75.0".to_string(),
-            agent_code_hash:
-                "0x5aac6b1fedf1b0c0ccc037c3223b7b5c8b679f48b9c599336c0dc777be88924b"
-                    .to_string(),
+            agent_code_hash: "0x5aac6b1fedf1b0c0ccc037c3223b7b5c8b679f48b9c599336c0dc777be88924b"
+                .to_string(),
             image_id: "0x5f42241afd61bf9e341442c8baffa9c544cf20253720f2540cf6705f27bae2c4"
                 .to_string(),
             artifacts: crate::manifest::Artifacts {
                 elf_path: "artifacts/zkvm-guest.elf".to_string(),
-                elf_sha256:
-                    "0xabcdef0000000000000000000000000000000000000000000000000000000123"
-                        .to_string(),
+                elf_sha256: "0xabcdef0000000000000000000000000000000000000000000000000000000123"
+                    .to_string(),
             },
             build: crate::manifest::BuildInfo {
                 cargo_lock_sha256:
-                    "0x1234560000000000000000000000000000000000000000000000000000000abc"
-                        .to_string(),
+                    "0x1234560000000000000000000000000000000000000000000000000000000abc".to_string(),
                 build_command: "cargo build --release".to_string(),
                 reproducible: true,
             },
@@ -322,13 +322,17 @@ mod tests {
         manifest.format_version = "2".to_string();
         let report = verify_manifest_structure(&manifest);
         assert!(!report.passed);
-        assert!(report.errors.iter().any(|e| matches!(e, VerificationError::InvalidFormatVersion { .. })));
+        assert!(report
+            .errors
+            .iter()
+            .any(|e| matches!(e, VerificationError::InvalidFormatVersion { .. })));
     }
 
     #[test]
     fn test_invalid_hex_missing_prefix() {
         let mut manifest = valid_manifest();
-        manifest.agent_id = "0000000000000000000000000000000000000000000000000000000000000001".to_string();
+        manifest.agent_id =
+            "0000000000000000000000000000000000000000000000000000000000000001".to_string();
         let report = verify_manifest_structure(&manifest);
         assert!(!report.passed);
     }
@@ -339,7 +343,10 @@ mod tests {
         manifest.image_id = "0xTODO_COMPUTE_THIS".to_string();
         let report = verify_manifest_structure(&manifest);
         assert!(!report.passed);
-        assert!(report.errors.iter().any(|e| matches!(e, VerificationError::PlaceholderFound { .. })));
+        assert!(report
+            .errors
+            .iter()
+            .any(|e| matches!(e, VerificationError::PlaceholderFound { .. })));
     }
 
     #[test]

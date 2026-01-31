@@ -186,6 +186,151 @@ When verifying an agent with `reproducible: true`, integrators can:
 2. Run the build command
 3. Compare the resulting `elf_sha256` and `image_id` to the manifest
 
+## Publishing an Agent
+
+The bundle workflow streamlines distribution by creating a self-contained directory that integrators can verify without any build tools. Use `agent-pack pack` to produce a distributable bundle from your built agent.
+
+### Creating a Bundle
+
+After building your agent and populating your manifest, create a bundle:
+
+```bash
+agent-pack pack \
+  --manifest dist/agent-pack.json \
+  --elf target/riscv-guest/riscv32im-risc0-zkvm-elf/release/zkvm-guest \
+  --out my-agent-bundle \
+  --cargo-lock Cargo.lock
+```
+
+This produces a directory containing:
+
+```
+my-agent-bundle/
+├── agent-pack.json      # Manifest with computed hashes
+└── artifacts/
+    └── zkvm-guest       # Copy of the ELF binary
+```
+
+The manifest's `artifacts.elf_path` is automatically set to a relative path (`artifacts/zkvm-guest`), making the bundle portable.
+
+### What Gets Computed
+
+The `pack` command recomputes certain fields to ensure the manifest matches the actual binary:
+
+- **elf_sha256**: SHA-256 of the ELF binary
+- **cargo_lock_sha256**: SHA-256 of Cargo.lock (if provided)
+- **image_id**: RISC Zero IMAGE_ID (requires `--features risc0`)
+
+Fields that are not recomputed include `agent_code_hash` (derived from source at build time) and metadata fields like `inputs` and `actions_profile`. These must be populated in your input manifest before packing.
+
+### Verifying a Bundle
+
+Recipients verify the bundle using the same tool:
+
+```bash
+agent-pack verify \
+  --manifest my-agent-bundle/agent-pack.json \
+  --base-dir my-agent-bundle
+```
+
+This checks that the ELF binary matches the declared hash. If built with `--features risc0`, it also verifies the IMAGE_ID matches.
+
+### Distribution
+
+Ship the entire bundle directory. Integrators receive:
+
+1. The manifest with all cryptographic commitments
+2. The exact ELF binary you built
+3. Everything needed to verify authenticity offline
+
+They can then compare the `image_id` against on-chain registrations to confirm the agent is legitimate.
+
+### What Changes Each Hash
+
+Understanding what triggers hash changes helps with versioning:
+
+| Change | agent_code_hash | elf_sha256 | image_id |
+|--------|-----------------|------------|----------|
+| Agent source code | Yes | Yes | Yes |
+| SDK version | No | Yes | Yes |
+| Rust toolchain | No | Yes | Yes |
+| Cargo.lock dependencies | No | Yes | Yes |
+| RISC Zero version | No | Yes | Yes |
+| Manifest metadata only | No | No | No |
+
+The `agent_code_hash` is the most stable identifier - it only changes when your agent's source files change. The `image_id` is the most comprehensive - any change to the build environment affects it.
+
+## Marketplace Ingestion and On-Chain Verification
+
+Offline verification with `agent-pack verify` confirms that a manifest is well-formed and that the ELF binary matches its declared hashes. However, this does not guarantee the agent is actually registered on-chain. A marketplace accepting agent submissions must take the additional step of querying the KernelExecutionVerifier contract.
+
+The `verify-onchain` command bridges this gap. It reads the `agent_id` and `image_id` from the manifest, queries the contract registry, and confirms the values match.
+
+### Usage
+
+```bash
+agent-pack verify-onchain \
+  --manifest agent-pack.json \
+  --rpc https://sepolia.infura.io/v3/YOUR_KEY \
+  --verifier 0x9Ef5bAB590AFdE8036D57b89ccD2947D4E3b1EFA
+```
+
+Note: The `verify-onchain` command requires building with the `onchain` feature:
+
+```bash
+cargo build -p agent-pack --features onchain
+```
+
+### Exit Codes
+
+The command returns structured exit codes for CI integration:
+
+| Exit Code | Meaning |
+|-----------|---------|
+| 0 | Agent is registered and image_id matches |
+| 1 | Error (RPC failure, invalid manifest, etc.) |
+| 2 | Agent is registered but image_id differs |
+| 3 | Agent is not registered (agent_id returns zero) |
+
+### Marketplace Workflow
+
+A complete verification workflow for marketplaces:
+
+1. Receive submission (manifest + ELF bundle)
+2. Run `agent-pack verify` for offline validation
+3. Run `agent-pack verify-onchain` to confirm registration
+4. Only accept if both pass
+
+Example CI script:
+
+```bash
+#!/bin/bash
+set -e
+
+# Step 1: Offline verification
+agent-pack verify --manifest submission/agent-pack.json --base-dir submission
+
+# Step 2: On-chain verification
+agent-pack verify-onchain \
+  --manifest submission/agent-pack.json \
+  --rpc "$RPC_URL" \
+  --verifier 0x9Ef5bAB590AFdE8036D57b89ccD2947D4E3b1EFA
+
+echo "Agent verified successfully!"
+```
+
+### Contract Interface
+
+The `verify-onchain` command queries the `agentImageIds` mapping on the KernelExecutionVerifier contract:
+
+```solidity
+function agentImageIds(bytes32 agentId) external view returns (bytes32);
+```
+
+This mapping returns:
+- The registered `image_id` if the agent is registered
+- `bytes32(0)` if the agent is not registered
+
 ## CLI Reference
 
 ### `agent-pack init`
@@ -232,6 +377,52 @@ OPTIONS:
     -b, --base-dir <PATH>      Base directory for resolving artifact paths
         --structure-only       Only verify manifest structure, skip file verification
 ```
+
+### `agent-pack pack`
+
+Creates a distributable bundle from a manifest and ELF binary.
+
+```
+USAGE:
+    agent-pack pack --manifest <PATH> --elf <PATH> --out <DIR> [OPTIONS]
+
+OPTIONS:
+    -m, --manifest <PATH>      Path to input manifest
+    -e, --elf <PATH>           Path to built ELF binary
+    -o, --out <DIR>            Output directory for bundle
+        --cargo-lock <PATH>    Path to Cargo.lock for hash computation
+        --copy-elf             Copy ELF to bundle [default: true]
+        --force                Overwrite existing output directory
+```
+
+The bundle is immediately verifiable:
+
+```bash
+agent-pack verify --manifest <out>/agent-pack.json --base-dir <out>
+```
+
+### `agent-pack verify-onchain`
+
+Verifies agent registration against the on-chain KernelExecutionVerifier contract.
+
+```
+USAGE:
+    agent-pack verify-onchain --manifest <PATH> --rpc <URL> --verifier <ADDRESS>
+
+OPTIONS:
+    -m, --manifest <PATH>      Path to manifest file
+        --rpc <URL>            RPC endpoint URL
+        --verifier <ADDRESS>   KernelExecutionVerifier contract address
+        --timeout-ms <MS>      RPC timeout in milliseconds [default: 30000]
+```
+
+Note: Requires building with `--features onchain`.
+
+Exit codes:
+- `0`: Match (image_id matches on-chain)
+- `1`: Error (RPC failure, parse error, etc.)
+- `2`: Mismatch (image_id differs from on-chain)
+- `3`: Not registered (agent_id returns zero)
 
 ## JSON Schema
 

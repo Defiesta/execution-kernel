@@ -49,9 +49,10 @@ pub fn parse_hex_32(s: &str) -> Result<[u8; 32], HexError> {
 
     let bytes = hex::decode(s).map_err(|e| HexError::InvalidHex(e.to_string()))?;
 
-    bytes
-        .try_into()
-        .map_err(|_| HexError::InvalidLength { expected: 64, actual: s.len() })
+    bytes.try_into().map_err(|_| HexError::InvalidLength {
+        expected: 64,
+        actual: s.len(),
+    })
 }
 
 /// Validates that a string is a valid 32-byte hex value with 0x prefix.

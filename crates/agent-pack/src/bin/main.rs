@@ -1,8 +1,10 @@
 //! Agent Pack CLI - Create and verify agent bundles.
 
+#[cfg(feature = "onchain")]
+use agent_pack::onchain::{verify_onchain_with_timeout, OnchainError, OnchainVerifyResult};
 use agent_pack::{
-    format_hex, sha256_file, validate_hex_32, verify_manifest_structure,
-    verify_manifest_with_files, AgentPackManifest,
+    format_hex, pack_bundle, sha256_file, validate_hex_32, verify_manifest_structure,
+    verify_manifest_with_files, AgentPackManifest, PackOptions,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -67,6 +69,53 @@ enum Commands {
         #[arg(long)]
         structure_only: bool,
     },
+
+    /// Create a distributable Agent Pack bundle
+    Pack {
+        /// Path to input manifest (may contain placeholders)
+        #[arg(short, long)]
+        manifest: PathBuf,
+
+        /// Path to the built zkVM guest ELF binary
+        #[arg(short, long)]
+        elf: PathBuf,
+
+        /// Output directory for the bundle
+        #[arg(short, long)]
+        out: PathBuf,
+
+        /// Path to Cargo.lock for hash computation
+        #[arg(long)]
+        cargo_lock: Option<PathBuf>,
+
+        /// Copy ELF into bundle artifacts folder [default: true]
+        #[arg(long, default_value = "true")]
+        copy_elf: bool,
+
+        /// Overwrite existing files in output directory
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Verify agent registration on-chain
+    #[cfg(feature = "onchain")]
+    VerifyOnchain {
+        /// Path to manifest file
+        #[arg(short, long)]
+        manifest: PathBuf,
+
+        /// RPC endpoint URL (e.g., https://sepolia.infura.io/v3/YOUR_KEY)
+        #[arg(long)]
+        rpc: String,
+
+        /// KernelExecutionVerifier contract address
+        #[arg(long)]
+        verifier: String,
+
+        /// RPC timeout in milliseconds
+        #[arg(long, default_value = "30000")]
+        timeout_ms: u64,
+    },
 }
 
 fn main() -> ExitCode {
@@ -89,6 +138,21 @@ fn main() -> ExitCode {
             base_dir,
             structure_only,
         } => cmd_verify(manifest, base_dir, structure_only),
+        Commands::Pack {
+            manifest,
+            elf,
+            out,
+            cargo_lock,
+            copy_elf,
+            force,
+        } => cmd_pack(manifest, elf, out, cargo_lock, copy_elf, force),
+        #[cfg(feature = "onchain")]
+        Commands::VerifyOnchain {
+            manifest,
+            rpc,
+            verifier,
+            timeout_ms,
+        } => cmd_verify_onchain(manifest, rpc, verifier, timeout_ms),
     }
 }
 
@@ -101,7 +165,10 @@ fn cmd_init(name: String, version: String, agent_id: String, out: Option<PathBuf
 
     // Validate version is semver-like
     if !is_valid_semver(&version) {
-        eprintln!("Error: invalid version '{}' - must be semver format (e.g., 1.0.0)", version);
+        eprintln!(
+            "Error: invalid version '{}' - must be semver format (e.g., 1.0.0)",
+            version
+        );
         return ExitCode::FAILURE;
     }
 
@@ -115,7 +182,11 @@ fn cmd_init(name: String, version: String, agent_id: String, out: Option<PathBuf
     if let Some(parent) = out_path.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                eprintln!("Error: could not create directory {}: {}", parent.display(), e);
+                eprintln!(
+                    "Error: could not create directory {}: {}",
+                    parent.display(),
+                    e
+                );
                 return ExitCode::FAILURE;
             }
         }
@@ -253,7 +324,10 @@ fn cmd_verify(
     };
 
     println!("Verifying: {}", manifest_path.display());
-    println!("  Agent: {} v{}", manifest.agent_name, manifest.agent_version);
+    println!(
+        "  Agent: {} v{}",
+        manifest.agent_name, manifest.agent_version
+    );
     println!("  Agent ID: {}", manifest.agent_id);
     println!();
 
@@ -280,9 +354,62 @@ fn cmd_verify(
     }
 }
 
+fn cmd_pack(
+    manifest: PathBuf,
+    elf: PathBuf,
+    out: PathBuf,
+    cargo_lock: Option<PathBuf>,
+    copy_elf: bool,
+    force: bool,
+) -> ExitCode {
+    let options = PackOptions { copy_elf, force };
+
+    println!("Creating Agent Pack bundle...");
+    println!("  Manifest: {}", manifest.display());
+    println!("  ELF:      {}", elf.display());
+    println!("  Output:   {}", out.display());
+    println!();
+
+    match pack_bundle(&manifest, &elf, &out, cargo_lock.as_deref(), &options) {
+        Ok(result) => {
+            println!("Bundle created successfully!");
+            println!();
+            println!("Output files:");
+            println!("  {}", result.manifest_path.display());
+            if let Some(elf_path) = &result.elf_path {
+                println!("  {}", elf_path.display());
+            }
+            println!();
+            println!("Computed values:");
+            println!("  elf_sha256: {}", result.elf_sha256);
+            if let Some(id) = &result.image_id {
+                println!("  image_id:   {}", id);
+            } else {
+                println!("  image_id:   (not computed - build with --features risc0)");
+            }
+            if let Some(lock_hash) = &result.cargo_lock_sha256 {
+                println!("  cargo_lock_sha256: {}", lock_hash);
+            }
+            println!();
+            println!("Verify the bundle with:");
+            println!(
+                "  agent-pack verify --manifest {} --base-dir {}",
+                result.manifest_path.display(),
+                out.display()
+            );
+
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// Simple semver validation (same as in verify.rs)
 fn is_valid_semver(version: &str) -> bool {
-    let parts: Vec<&str> = version.split(|c| c == '-' || c == '+').collect();
+    let parts: Vec<&str> = version.split(['-', '+']).collect();
     if parts.is_empty() {
         return false;
     }
@@ -299,4 +426,124 @@ fn is_valid_semver(version: &str) -> bool {
     }
 
     true
+}
+
+/// Exit code values for verify-onchain command.
+///
+/// Following Unix conventions, different exit codes signal different outcomes:
+/// - 0: Match - agent is registered and image_id matches
+/// - 1: Error - RPC failure, invalid manifest, etc.
+/// - 2: Mismatch - agent is registered but image_id differs
+/// - 3: Not Registered - agent_id returns bytes32(0)
+#[cfg(feature = "onchain")]
+mod exit_codes {
+    use std::process::ExitCode;
+
+    pub const MATCH: ExitCode = ExitCode::SUCCESS;
+    pub const ERROR: ExitCode = ExitCode::FAILURE;
+
+    pub fn mismatch() -> ExitCode {
+        ExitCode::from(2)
+    }
+
+    pub fn not_registered() -> ExitCode {
+        ExitCode::from(3)
+    }
+}
+
+#[cfg(feature = "onchain")]
+fn cmd_verify_onchain(
+    manifest_path: PathBuf,
+    rpc_url: String,
+    verifier_address: String,
+    timeout_ms: u64,
+) -> ExitCode {
+    // Load manifest
+    let manifest = match AgentPackManifest::from_file(&manifest_path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error: could not read manifest: {}", e);
+            return exit_codes::ERROR;
+        }
+    };
+
+    // Validate manifest has required fields
+    if manifest.agent_id.contains("TODO") {
+        eprintln!("Error: manifest agent_id contains placeholder value");
+        return exit_codes::ERROR;
+    }
+    if manifest.image_id.contains("TODO") {
+        eprintln!("Error: manifest image_id contains placeholder value");
+        return exit_codes::ERROR;
+    }
+
+    println!("Verifying on-chain registration...");
+    println!(
+        "  Agent: {} v{}",
+        manifest.agent_name, manifest.agent_version
+    );
+    println!("  Agent ID: {}", manifest.agent_id);
+    println!("  Image ID: {}", manifest.image_id);
+    println!("  Verifier: {}", verifier_address);
+    println!();
+
+    // Create tokio runtime and execute
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("Error: failed to create async runtime: {}", e);
+            return exit_codes::ERROR;
+        }
+    };
+
+    let result = runtime.block_on(verify_onchain_with_timeout(
+        &rpc_url,
+        &verifier_address,
+        &manifest.agent_id,
+        &manifest.image_id,
+        timeout_ms,
+    ));
+
+    match result {
+        Ok(OnchainVerifyResult::Match) => {
+            println!("PASS: On-chain image_id matches manifest");
+            println!();
+            println!("The agent is registered and its image_id matches the manifest.");
+            exit_codes::MATCH
+        }
+        Ok(OnchainVerifyResult::Mismatch { onchain, manifest }) => {
+            eprintln!("FAIL: On-chain image_id does not match manifest");
+            eprintln!();
+            eprintln!("  On-chain:  {}", onchain);
+            eprintln!("  Manifest:  {}", manifest);
+            eprintln!();
+            eprintln!("The agent is registered but with a different image_id.");
+            eprintln!("This may indicate a version mismatch or unauthorized modification.");
+            exit_codes::mismatch()
+        }
+        Ok(OnchainVerifyResult::NotRegistered) => {
+            eprintln!("FAIL: Agent is not registered on-chain");
+            eprintln!();
+            eprintln!("The agent_id {} returns bytes32(0).", manifest.agent_id);
+            eprintln!("The agent must be registered before verification can succeed.");
+            exit_codes::not_registered()
+        }
+        Err(e) => {
+            eprintln!("Error: {}", format_onchain_error(&e));
+            exit_codes::ERROR
+        }
+    }
+}
+
+#[cfg(feature = "onchain")]
+fn format_onchain_error(e: &OnchainError) -> String {
+    match e {
+        OnchainError::InvalidRpcUrl(msg) => format!("Invalid RPC URL: {}", msg),
+        OnchainError::InvalidVerifierAddress(msg) => {
+            format!("Invalid verifier address: {}", msg)
+        }
+        OnchainError::InvalidAgentId(msg) => format!("Invalid agent_id in manifest: {}", msg),
+        OnchainError::InvalidImageId(msg) => format!("Invalid image_id in manifest: {}", msg),
+        OnchainError::RpcError(msg) => format!("RPC call failed: {}", msg),
+    }
 }

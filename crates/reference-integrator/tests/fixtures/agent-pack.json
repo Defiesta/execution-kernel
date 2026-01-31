@@ -1,0 +1,23 @@
+{
+  "format_version": "1",
+  "agent_name": "test-agent",
+  "agent_version": "1.0.0",
+  "agent_id": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "protocol_version": 1,
+  "kernel_version": 1,
+  "risc0_version": "3.0.4",
+  "rust_toolchain": "1.75.0",
+  "agent_code_hash": "0x5aac6b1fedf1b0c0ccc037c3223b7b5c8b679f48b9c599336c0dc777be88924b",
+  "image_id": "0x5f42241afd61bf9e341442c8baffa9c544cf20253720f2540cf6705f27bae2c4",
+  "artifacts": {
+    "elf_path": "mock-guest.elf",
+    "elf_sha256": "0xc90f3cc0ae6e8843b51f89b9f8166b028f17af43661a185e57822281704aef4d"
+  },
+  "build": {
+    "cargo_lock_sha256": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "build_command": "cargo build --release",
+    "reproducible": false
+  },
+  "inputs": "Test agent input format",
+  "actions_profile": "Test agent actions"
+}

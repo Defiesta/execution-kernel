@@ -33,9 +33,9 @@
 //!
 //! If the hash doesn't match, `KernelError::AgentCodeHashMismatch` is returned.
 
+use constraints::{enforce_constraints, ConstraintSetV1, EMPTY_OUTPUT_COMMITMENT};
 use kernel_core::*;
 use kernel_sdk::agent::AgentContext;
-use constraints::{enforce_constraints, ConstraintSetV1, EMPTY_OUTPUT_COMMITMENT};
 
 // Re-export KernelError for wrapper crates to use.
 pub use kernel_core::KernelError;
@@ -244,4 +244,3 @@ pub fn kernel_main_with_agent_and_constraints(
     // 10. Encode and return journal (always produced)
     journal.encode().map_err(KernelError::EncodingFailed)
 }
-

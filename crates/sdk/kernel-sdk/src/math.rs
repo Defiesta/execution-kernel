@@ -283,25 +283,41 @@ pub fn drawdown_bps(current_equity: u64, peak_equity: u64) -> Option<u64> {
 /// Return the minimum of two u64 values.
 #[inline]
 pub fn min_u64(a: u64, b: u64) -> u64 {
-    if a < b { a } else { b }
+    if a < b {
+        a
+    } else {
+        b
+    }
 }
 
 /// Return the maximum of two u64 values.
 #[inline]
 pub fn max_u64(a: u64, b: u64) -> u64 {
-    if a > b { a } else { b }
+    if a > b {
+        a
+    } else {
+        b
+    }
 }
 
 /// Return the minimum of two u32 values.
 #[inline]
 pub fn min_u32(a: u32, b: u32) -> u32 {
-    if a < b { a } else { b }
+    if a < b {
+        a
+    } else {
+        b
+    }
 }
 
 /// Return the maximum of two u32 values.
 #[inline]
 pub fn max_u32(a: u32, b: u32) -> u32 {
-    if a > b { a } else { b }
+    if a > b {
+        a
+    } else {
+        b
+    }
 }
 
 /// Clamp a u64 value to a range.

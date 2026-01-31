@@ -4,256 +4,86 @@
 //! - [`AgentOutput`] - The structured output returned by agents
 //! - [`ActionV1`] - Individual actions within the output
 //!
-//! # Action Types
+//! # On-Chain Executable Action Types (Protocol v1)
 //!
-//! The following action type constants are provided:
-//! - [`ACTION_TYPE_ECHO`] - Echo/test action (0x00000001)
-//! - [`ACTION_TYPE_OPEN_POSITION`] - Open a trading position (0x00000002)
-//! - [`ACTION_TYPE_CLOSE_POSITION`] - Close a position (0x00000003)
-//! - [`ACTION_TYPE_ADJUST_POSITION`] - Modify position size/leverage (0x00000004)
-//! - [`ACTION_TYPE_SWAP`] - Asset swap/exchange (0x00000005)
+//! The following action types are supported by KernelVault for on-chain execution:
+//!
+//! - [`ACTION_TYPE_CALL`] - Generic contract call (0x00000002)
+//!   - Payload: `abi.encode(uint256 value, bytes callData)`
+//!   - Execution: `target.call{value: value}(callData)`
+//!
+//! - [`ACTION_TYPE_TRANSFER_ERC20`] - ERC20 token transfer (0x00000003)
+//!   - Payload: `abi.encode(address token, address to, uint256 amount)`
+//!   - Execution: `IERC20(token).transfer(to, amount)`
+//!
+//! - [`ACTION_TYPE_NO_OP`] - No operation (0x00000004)
+//!   - Payload: empty
+//!   - Execution: skipped
+//!
+//! # Important Notes
+//!
+//! - Higher-level strategy concepts (e.g., "open position", "swap") are agent
+//!   abstractions that must be compiled down to CALL or TRANSFER_ERC20 actions.
+//! - The target field is a bytes32 with the EVM address left-padded (12 zero bytes + 20-byte address).
+//! - All payloads must be ABI-encoded to match Solidity's expectations.
 //!
 //! # Size Limits
 //!
 //! - [`MAX_ACTIONS_PER_OUTPUT`] - Maximum 64 actions per output
 //! - [`MAX_ACTION_PAYLOAD_BYTES`] - Maximum 16,384 bytes per action payload
-//!
-//! # Payload Decoding
-//!
-//! For inspecting action payloads, use the `decode_*_payload` helpers:
-//! - [`decode_open_position_payload`]
-//! - [`decode_close_position_payload`]
-//! - [`decode_adjust_position_payload`]
-//! - [`decode_swap_payload`]
 
 use alloc::vec::Vec;
 
 // Re-export core types from kernel-core
-pub use kernel_core::{
-    ActionV1,
-    AgentOutput,
-    MAX_ACTION_PAYLOAD_BYTES,
-    MAX_ACTIONS_PER_OUTPUT,
-};
+pub use kernel_core::{ActionV1, AgentOutput, MAX_ACTIONS_PER_OUTPUT, MAX_ACTION_PAYLOAD_BYTES};
 
 // ============================================================================
-// Action Type Constants
-// ============================================================================
-
-/// Echo action type (0x00000001).
-///
-/// Used for testing and debugging. Payload is opaque bytes with no schema.
-pub const ACTION_TYPE_ECHO: u32 = 0x00000001;
-
-/// Open position action type (0x00000002).
-///
-/// Opens a new trading position. Payload schema (45 bytes):
-/// - `asset_id`: [u8; 32] - Asset identifier
-/// - `notional`: u64 - Position size in base units (little-endian)
-/// - `leverage_bps`: u32 - Leverage in basis points (little-endian)
-/// - `direction`: u8 - 0 = Long, 1 = Short
-pub const ACTION_TYPE_OPEN_POSITION: u32 = 0x00000002;
-
-/// Close position action type (0x00000003).
-///
-/// Closes an existing position. Payload schema (32 bytes):
-/// - `position_id`: [u8; 32] - Position identifier to close
-pub const ACTION_TYPE_CLOSE_POSITION: u32 = 0x00000003;
-
-/// Adjust position action type (0x00000004).
-///
-/// Modifies an existing position. Payload schema (44 bytes):
-/// - `position_id`: [u8; 32] - Position identifier
-/// - `new_notional`: u64 - New position size (0 = unchanged, little-endian)
-/// - `new_leverage_bps`: u32 - New leverage (0 = unchanged, little-endian)
-pub const ACTION_TYPE_ADJUST_POSITION: u32 = 0x00000004;
-
-/// Swap action type (0x00000005).
-///
-/// Asset swap/exchange. Payload schema (72 bytes):
-/// - `from_asset`: [u8; 32] - Source asset identifier
-/// - `to_asset`: [u8; 32] - Destination asset identifier
-/// - `amount`: u64 - Amount to swap (little-endian)
-pub const ACTION_TYPE_SWAP: u32 = 0x00000005;
-
-// ============================================================================
-// On-Chain Execution Action Types
+// Action Type Constants (re-exported from kernel-core)
 // ============================================================================
 //
-// These action types are used for on-chain vault execution via KernelVault.sol.
-// They map to the action type constants in KernelOutputParser.sol.
+// These are re-exports of the canonical constants from kernel-core.
+// kernel-core is the single source of truth for action type values.
 
 /// CALL action type for on-chain execution (0x00000002).
 ///
-/// Used by KernelVault.execute() to perform arbitrary contract calls.
-/// Matches KernelOutputParser.sol ACTION_TYPE_CALL.
-///
-/// Payload schema (ABI-encoded):
-/// - `abi.encode(uint256 value, bytes callData)`
-///
-/// On-chain execution: `target.call{value: value}(callData)`
-///
-/// # Target Format
-///
-/// The target is a bytes32 with the EVM address left-padded:
-/// - Upper 12 bytes: 0x00 (must be zero for valid EVM address)
-/// - Lower 20 bytes: EVM address
-pub const ACTION_TYPE_CALL: u32 = 0x00000002;
+/// See [`kernel_core::ACTION_TYPE_CALL`] for full documentation.
+pub use kernel_core::ACTION_TYPE_CALL;
 
 /// ERC20 transfer action type for on-chain execution (0x00000003).
 ///
-/// Used by KernelVault.execute() to transfer ERC20 tokens.
-/// Matches KernelOutputParser.sol ACTION_TYPE_TRANSFER_ERC20.
-pub const ACTION_TYPE_TRANSFER_ERC20: u32 = 0x00000003;
+/// See [`kernel_core::ACTION_TYPE_TRANSFER_ERC20`] for full documentation.
+pub use kernel_core::ACTION_TYPE_TRANSFER_ERC20;
 
 /// No-op action type (0x00000004).
 ///
-/// Used for testing or placeholder actions that should be skipped.
-/// Matches KernelOutputParser.sol ACTION_TYPE_NO_OP.
-pub const ACTION_TYPE_NO_OP: u32 = 0x00000004;
+/// See [`kernel_core::ACTION_TYPE_NO_OP`] for full documentation.
+pub use kernel_core::ACTION_TYPE_NO_OP;
 
-// ============================================================================
-// Payload Size Constants
-// ============================================================================
-
-/// Expected payload size for OpenPosition action (45 bytes).
-pub const OPEN_POSITION_PAYLOAD_SIZE: usize = 45;
-
-/// Expected payload size for ClosePosition action (32 bytes).
-pub const CLOSE_POSITION_PAYLOAD_SIZE: usize = 32;
-
-/// Expected payload size for AdjustPosition action (44 bytes).
-pub const ADJUST_POSITION_PAYLOAD_SIZE: usize = 44;
-
-/// Expected payload size for Swap action (72 bytes).
-pub const SWAP_PAYLOAD_SIZE: usize = 72;
+/// Echo action type for testing (0x00000001).
+///
+/// Only available with the `testing` feature or in test mode.
+/// This action type is NOT executable by KernelVault.
+///
+/// Note: This is defined locally rather than re-exported from kernel-core
+/// because the cfg gates don't propagate across crate boundaries.
+#[cfg(any(test, feature = "testing"))]
+pub const ACTION_TYPE_ECHO: u32 = 0x00000001;
 
 // ============================================================================
 // Helper Constructors
 // ============================================================================
 
-/// Create an Echo action.
+/// Create an Echo action (testing only).
 ///
 /// # Arguments
 /// * `target` - 32-byte target identifier
 /// * `payload` - Arbitrary payload bytes
+#[cfg(any(test, feature = "testing"))]
 #[inline]
 #[must_use]
 pub fn echo_action(target: [u8; 32], payload: Vec<u8>) -> ActionV1 {
     ActionV1 {
         action_type: ACTION_TYPE_ECHO,
-        target,
-        payload,
-    }
-}
-
-/// Create an OpenPosition action.
-///
-/// # Arguments
-/// * `target` - 32-byte target (typically contract address)
-/// * `asset_id` - 32-byte asset identifier
-/// * `notional` - Position size in base units
-/// * `leverage_bps` - Leverage in basis points (10000 = 1x)
-/// * `direction` - 0 = Long, 1 = Short (values > 1 will fail constraint checks)
-///
-/// # Panics (debug builds only)
-///
-/// Debug-asserts that `direction <= 1`. In release builds, invalid directions
-/// pass through and will be rejected by the constraint engine.
-#[inline]
-#[must_use]
-pub fn open_position_action(
-    target: [u8; 32],
-    asset_id: [u8; 32],
-    notional: u64,
-    leverage_bps: u32,
-    direction: u8,
-) -> ActionV1 {
-    debug_assert!(direction <= 1, "direction must be 0 (Long) or 1 (Short)");
-
-    let mut payload = Vec::with_capacity(OPEN_POSITION_PAYLOAD_SIZE);
-    payload.extend_from_slice(&asset_id);
-    payload.extend_from_slice(&notional.to_le_bytes());
-    payload.extend_from_slice(&leverage_bps.to_le_bytes());
-    payload.push(direction);
-
-    debug_assert_eq!(payload.len(), OPEN_POSITION_PAYLOAD_SIZE);
-
-    ActionV1 {
-        action_type: ACTION_TYPE_OPEN_POSITION,
-        target,
-        payload,
-    }
-}
-
-/// Create a ClosePosition action.
-///
-/// # Arguments
-/// * `target` - 32-byte target (typically contract address)
-/// * `position_id` - 32-byte position identifier to close
-#[inline]
-#[must_use]
-pub fn close_position_action(target: [u8; 32], position_id: [u8; 32]) -> ActionV1 {
-    ActionV1 {
-        action_type: ACTION_TYPE_CLOSE_POSITION,
-        target,
-        payload: position_id.to_vec(),
-    }
-}
-
-/// Create an AdjustPosition action.
-///
-/// # Arguments
-/// * `target` - 32-byte target (typically contract address)
-/// * `position_id` - 32-byte position identifier
-/// * `new_notional` - New position size (0 = unchanged)
-/// * `new_leverage_bps` - New leverage in bps (0 = unchanged)
-#[inline]
-#[must_use]
-pub fn adjust_position_action(
-    target: [u8; 32],
-    position_id: [u8; 32],
-    new_notional: u64,
-    new_leverage_bps: u32,
-) -> ActionV1 {
-    let mut payload = Vec::with_capacity(ADJUST_POSITION_PAYLOAD_SIZE);
-    payload.extend_from_slice(&position_id);
-    payload.extend_from_slice(&new_notional.to_le_bytes());
-    payload.extend_from_slice(&new_leverage_bps.to_le_bytes());
-
-    debug_assert_eq!(payload.len(), ADJUST_POSITION_PAYLOAD_SIZE);
-
-    ActionV1 {
-        action_type: ACTION_TYPE_ADJUST_POSITION,
-        target,
-        payload,
-    }
-}
-
-/// Create a Swap action.
-///
-/// # Arguments
-/// * `target` - 32-byte target (typically DEX contract address)
-/// * `from_asset` - 32-byte source asset identifier
-/// * `to_asset` - 32-byte destination asset identifier
-/// * `amount` - Amount to swap
-#[inline]
-#[must_use]
-pub fn swap_action(
-    target: [u8; 32],
-    from_asset: [u8; 32],
-    to_asset: [u8; 32],
-    amount: u64,
-) -> ActionV1 {
-    let mut payload = Vec::with_capacity(SWAP_PAYLOAD_SIZE);
-    payload.extend_from_slice(&from_asset);
-    payload.extend_from_slice(&to_asset);
-    payload.extend_from_slice(&amount.to_le_bytes());
-
-    debug_assert_eq!(payload.len(), SWAP_PAYLOAD_SIZE);
-
-    ActionV1 {
-        action_type: ACTION_TYPE_SWAP,
         target,
         payload,
     }
@@ -286,6 +116,44 @@ pub fn call_action(target: [u8; 32], value: u128, call_data: &[u8]) -> ActionV1 
     }
 }
 
+/// Create a TRANSFER_ERC20 action for on-chain execution.
+///
+/// This creates an action that will be executed by KernelVault.execute()
+/// as: `IERC20(token).transfer(to, amount)`
+///
+/// # Arguments
+/// * `token` - 20-byte ERC20 token address
+/// * `to` - 20-byte recipient address
+/// * `amount` - Amount to transfer (in token's smallest unit)
+///
+/// # Target
+///
+/// The target is set to zero (unused for ERC20 transfers).
+/// The token address is encoded in the payload.
+#[inline]
+#[must_use]
+pub fn transfer_erc20_action(token: &[u8; 20], to: &[u8; 20], amount: u128) -> ActionV1 {
+    ActionV1 {
+        action_type: ACTION_TYPE_TRANSFER_ERC20,
+        target: [0u8; 32], // Target unused for ERC20 transfers
+        payload: encode_transfer_erc20_payload(token, to, amount),
+    }
+}
+
+/// Create a NO_OP action.
+///
+/// This action is skipped during on-chain execution.
+/// Useful for padding or placeholder actions.
+#[inline]
+#[must_use]
+pub fn no_op_action() -> ActionV1 {
+    ActionV1 {
+        action_type: ACTION_TYPE_NO_OP,
+        target: [0u8; 32],
+        payload: Vec::new(),
+    }
+}
+
 /// Convert a 20-byte EVM address to bytes32 (left-padded).
 ///
 /// The resulting bytes32 has:
@@ -298,6 +166,10 @@ pub fn address_to_bytes32(addr: &[u8; 20]) -> [u8; 32] {
     result[12..32].copy_from_slice(addr);
     result
 }
+
+// ============================================================================
+// Payload Encoding Helpers
+// ============================================================================
 
 /// Encode a u256 value in big-endian format (for ABI encoding).
 #[inline]
@@ -318,7 +190,7 @@ fn encode_u256_be(value: u128) -> [u8; 32] {
 fn encode_call_payload(value: u128, call_data: &[u8]) -> Vec<u8> {
     let data_len = call_data.len();
     // Pad data to 32-byte boundary
-    let padded_len = ((data_len + 31) / 32) * 32;
+    let padded_len = data_len.div_ceil(32) * 32;
 
     // Total size: 32 (value) + 32 (offset) + 32 (length) + padded_data
     let total_size = 96 + padded_len;
@@ -341,141 +213,25 @@ fn encode_call_payload(value: u128, call_data: &[u8]) -> Vec<u8> {
     payload
 }
 
-// ============================================================================
-// Payload Decode Helpers
-// ============================================================================
-//
-// These decode helpers perform **structural validation only** (correct size
-// and byte layout). Semantic validation (e.g., `direction <= 1`, leverage
-// bounds) is performed by the constraint engine, not here.
-//
-// This separation allows agents to inspect payloads without duplicating
-// constraint logic.
-
-/// Decoded OpenPosition payload fields.
+/// Encode the TRANSFER_ERC20 payload: abi.encode(address token, address to, uint256 amount)
 ///
-/// Note: This struct contains the raw decoded values. Semantic validation
-/// (e.g., `direction <= 1`) is performed by the constraint engine.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodedOpenPosition {
-    /// 32-byte asset identifier
-    pub asset_id: [u8; 32],
-    /// Position size in base units
-    pub notional: u64,
-    /// Leverage in basis points (10000 = 1x)
-    pub leverage_bps: u32,
-    /// Direction: 0 = Long, 1 = Short (not validated here)
-    pub direction: u8,
-}
+/// ABI encoding for (address, address, uint256):
+/// - bytes 0-31: token address (left-padded to 32 bytes)
+/// - bytes 32-63: to address (left-padded to 32 bytes)
+/// - bytes 64-95: amount (uint256, big-endian)
+fn encode_transfer_erc20_payload(token: &[u8; 20], to: &[u8; 20], amount: u128) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(96);
 
-/// Decoded AdjustPosition payload fields.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodedAdjustPosition {
-    /// 32-byte position identifier
-    pub position_id: [u8; 32],
-    /// New position size (0 = unchanged)
-    pub new_notional: u64,
-    /// New leverage in basis points (0 = unchanged)
-    pub new_leverage_bps: u32,
-}
+    // 1. address token (left-padded)
+    payload.extend_from_slice(&address_to_bytes32(token));
 
-/// Decoded Swap payload fields.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DecodedSwap {
-    /// 32-byte source asset identifier
-    pub from_asset: [u8; 32],
-    /// 32-byte destination asset identifier
-    pub to_asset: [u8; 32],
-    /// Amount to swap
-    pub amount: u64,
-}
+    // 2. address to (left-padded)
+    payload.extend_from_slice(&address_to_bytes32(to));
 
-/// Decode an OpenPosition action payload.
-///
-/// Returns `None` if the payload is malformed (wrong size).
-///
-/// **Note:** This validates layout only; semantic validation (e.g.,
-/// `direction <= 1`) is performed by the constraint engine.
-#[inline]
-#[must_use]
-pub fn decode_open_position_payload(payload: &[u8]) -> Option<DecodedOpenPosition> {
-    if payload.len() != OPEN_POSITION_PAYLOAD_SIZE {
-        return None;
-    }
+    // 3. uint256 amount
+    payload.extend_from_slice(&encode_u256_be(amount));
 
-    let asset_id: [u8; 32] = payload[0..32].try_into().ok()?;
-    let notional = u64::from_le_bytes(payload[32..40].try_into().ok()?);
-    let leverage_bps = u32::from_le_bytes(payload[40..44].try_into().ok()?);
-    let direction = payload[44];
-
-    Some(DecodedOpenPosition {
-        asset_id,
-        notional,
-        leverage_bps,
-        direction,
-    })
-}
-
-/// Decode a ClosePosition action payload.
-///
-/// Returns `None` if the payload is malformed (wrong size).
-/// Returns the 32-byte position_id directly.
-#[inline]
-#[must_use]
-pub fn decode_close_position_payload(payload: &[u8]) -> Option<[u8; 32]> {
-    if payload.len() != CLOSE_POSITION_PAYLOAD_SIZE {
-        return None;
-    }
-    let arr: [u8; 32] = payload.try_into().ok()?;
-    Some(arr)
-}
-
-/// Decode an AdjustPosition action payload.
-///
-/// Returns `None` if the payload is malformed (wrong size).
-///
-/// **Note:** This validates layout only; semantic validation is performed
-/// by the constraint engine.
-#[inline]
-#[must_use]
-pub fn decode_adjust_position_payload(payload: &[u8]) -> Option<DecodedAdjustPosition> {
-    if payload.len() != ADJUST_POSITION_PAYLOAD_SIZE {
-        return None;
-    }
-
-    let position_id: [u8; 32] = payload[0..32].try_into().ok()?;
-    let new_notional = u64::from_le_bytes(payload[32..40].try_into().ok()?);
-    let new_leverage_bps = u32::from_le_bytes(payload[40..44].try_into().ok()?);
-
-    Some(DecodedAdjustPosition {
-        position_id,
-        new_notional,
-        new_leverage_bps,
-    })
-}
-
-/// Decode a Swap action payload.
-///
-/// Returns `None` if the payload is malformed (wrong size).
-///
-/// **Note:** This validates layout only; semantic validation is performed
-/// by the constraint engine.
-#[inline]
-#[must_use]
-pub fn decode_swap_payload(payload: &[u8]) -> Option<DecodedSwap> {
-    if payload.len() != SWAP_PAYLOAD_SIZE {
-        return None;
-    }
-
-    let from_asset: [u8; 32] = payload[0..32].try_into().ok()?;
-    let to_asset: [u8; 32] = payload[32..64].try_into().ok()?;
-    let amount = u64::from_le_bytes(payload[64..72].try_into().ok()?);
-
-    Some(DecodedSwap {
-        from_asset,
-        to_asset,
-        amount,
-    })
+    payload
 }
 
 #[cfg(test)]
@@ -491,76 +247,77 @@ mod tests {
     }
 
     #[test]
-    fn test_open_position_action() {
-        let action = open_position_action(
-            [0x11; 32],
-            [0x42; 32],
-            1000,
-            10000,
-            0,
-        );
+    fn test_call_action() {
+        let target = address_to_bytes32(&[0x11; 20]);
+        let action = call_action(target, 1000, &[0xab, 0xcd, 0xef, 0x12]);
 
-        assert_eq!(action.action_type, ACTION_TYPE_OPEN_POSITION);
-        assert_eq!(action.payload.len(), OPEN_POSITION_PAYLOAD_SIZE);
+        assert_eq!(action.action_type, ACTION_TYPE_CALL);
+        assert_eq!(action.target, target);
+        // Payload should be ABI-encoded: value (32) + offset (32) + length (32) + data (32 padded)
+        assert_eq!(action.payload.len(), 128);
 
-        // Verify payload structure (canonical layout)
-        assert_eq!(&action.payload[0..32], &[0x42; 32]); // asset_id
-        assert_eq!(&action.payload[32..40], &1000u64.to_le_bytes()); // notional
-        assert_eq!(&action.payload[40..44], &10000u32.to_le_bytes()); // leverage
-        assert_eq!(action.payload[44], 0); // direction
+        // Verify value encoding (big-endian u256)
+        let mut expected_value = [0u8; 32];
+        expected_value[16..32].copy_from_slice(&1000u128.to_be_bytes());
+        assert_eq!(&action.payload[0..32], &expected_value);
+
+        // Verify offset (64 = 0x40)
+        assert_eq!(action.payload[63], 64);
+
+        // Verify length (4)
+        assert_eq!(action.payload[95], 4);
+
+        // Verify calldata
+        assert_eq!(&action.payload[96..100], &[0xab, 0xcd, 0xef, 0x12]);
     }
 
     #[test]
-    fn test_close_position_action() {
-        let action = close_position_action([0x11; 32], [0x99; 32]);
+    fn test_transfer_erc20_action() {
+        let token = [0x11; 20];
+        let to = [0x22; 20];
+        let action = transfer_erc20_action(&token, &to, 1_000_000);
 
-        assert_eq!(action.action_type, ACTION_TYPE_CLOSE_POSITION);
-        assert_eq!(action.payload.len(), CLOSE_POSITION_PAYLOAD_SIZE);
-        assert_eq!(action.payload, [0x99; 32].to_vec());
+        assert_eq!(action.action_type, ACTION_TYPE_TRANSFER_ERC20);
+        assert_eq!(action.target, [0u8; 32]); // Target unused for ERC20
+        assert_eq!(action.payload.len(), 96);
+
+        // Verify token address (left-padded)
+        assert_eq!(&action.payload[0..12], &[0u8; 12]);
+        assert_eq!(&action.payload[12..32], &token);
+
+        // Verify to address (left-padded)
+        assert_eq!(&action.payload[32..44], &[0u8; 12]);
+        assert_eq!(&action.payload[44..64], &to);
+
+        // Verify amount (big-endian u256)
+        let mut expected_amount = [0u8; 32];
+        expected_amount[16..32].copy_from_slice(&1_000_000u128.to_be_bytes());
+        assert_eq!(&action.payload[64..96], &expected_amount);
     }
 
     #[test]
-    fn test_adjust_position_action() {
-        let action = adjust_position_action(
-            [0x11; 32],
-            [0x99; 32],
-            2000,
-            20000,
-        );
-
-        assert_eq!(action.action_type, ACTION_TYPE_ADJUST_POSITION);
-        assert_eq!(action.payload.len(), ADJUST_POSITION_PAYLOAD_SIZE);
-
-        // Verify payload structure (canonical layout)
-        assert_eq!(&action.payload[0..32], &[0x99; 32]); // position_id
-        assert_eq!(&action.payload[32..40], &2000u64.to_le_bytes()); // new_notional
-        assert_eq!(&action.payload[40..44], &20000u32.to_le_bytes()); // new_leverage_bps
+    fn test_no_op_action() {
+        let action = no_op_action();
+        assert_eq!(action.action_type, ACTION_TYPE_NO_OP);
+        assert_eq!(action.target, [0u8; 32]);
+        assert!(action.payload.is_empty());
     }
 
     #[test]
-    fn test_swap_action() {
-        let action = swap_action(
-            [0x11; 32],
-            [0xaa; 32],
-            [0xbb; 32],
-            5000,
-        );
+    fn test_address_to_bytes32() {
+        let addr = [0xab; 20];
+        let bytes32 = address_to_bytes32(&addr);
 
-        assert_eq!(action.action_type, ACTION_TYPE_SWAP);
-        assert_eq!(action.payload.len(), SWAP_PAYLOAD_SIZE);
-
-        // Verify payload structure (canonical layout)
-        assert_eq!(&action.payload[0..32], &[0xaa; 32]); // from_asset
-        assert_eq!(&action.payload[32..64], &[0xbb; 32]); // to_asset
-        assert_eq!(&action.payload[64..72], &5000u64.to_le_bytes()); // amount
+        assert_eq!(&bytes32[0..12], &[0u8; 12]);
+        assert_eq!(&bytes32[12..32], &addr);
     }
 
     #[test]
     fn test_agent_output_construction() {
         let output = AgentOutput {
             actions: alloc::vec![
-                echo_action([0x42; 32], alloc::vec![1]),
-                echo_action([0x43; 32], alloc::vec![2]),
+                call_action(address_to_bytes32(&[0x11; 20]), 0, &[]),
+                no_op_action(),
             ],
         };
 
@@ -568,110 +325,28 @@ mod tests {
     }
 
     // ========================================================================
-    // Decode Helper Tests
+    // Action Type Re-export Invariant Tests
     // ========================================================================
 
     #[test]
-    fn test_decode_open_position_payload() {
-        let action = open_position_action(
-            [0x11; 32],
-            [0x42; 32],
-            1000,
-            10000,
-            1, // Short
+    fn test_action_types_match_kernel_core() {
+        // Verify that our re-exports match kernel-core's values
+        assert_eq!(ACTION_TYPE_CALL, kernel_core::ACTION_TYPE_CALL);
+        assert_eq!(
+            ACTION_TYPE_TRANSFER_ERC20,
+            kernel_core::ACTION_TYPE_TRANSFER_ERC20
         );
-
-        let decoded = decode_open_position_payload(&action.payload).unwrap();
-        assert_eq!(decoded.asset_id, [0x42; 32]);
-        assert_eq!(decoded.notional, 1000);
-        assert_eq!(decoded.leverage_bps, 10000);
-        assert_eq!(decoded.direction, 1);
+        assert_eq!(ACTION_TYPE_NO_OP, kernel_core::ACTION_TYPE_NO_OP);
+        // Note: ACTION_TYPE_ECHO is available in test via cfg(test)
+        assert_eq!(ACTION_TYPE_ECHO, 0x00000001);
     }
 
     #[test]
-    fn test_decode_open_position_payload_wrong_size() {
-        assert!(decode_open_position_payload(&[0u8; 44]).is_none()); // Too short
-        assert!(decode_open_position_payload(&[0u8; 46]).is_none()); // Too long
-    }
-
-    #[test]
-    fn test_decode_close_position_payload() {
-        let action = close_position_action([0x11; 32], [0x99; 32]);
-
-        let decoded = decode_close_position_payload(&action.payload).unwrap();
-        assert_eq!(decoded, [0x99; 32]);
-    }
-
-    #[test]
-    fn test_decode_close_position_payload_wrong_size() {
-        assert!(decode_close_position_payload(&[0u8; 31]).is_none());
-        assert!(decode_close_position_payload(&[0u8; 33]).is_none());
-    }
-
-    #[test]
-    fn test_decode_adjust_position_payload() {
-        let action = adjust_position_action(
-            [0x11; 32],
-            [0x99; 32],
-            2000,
-            20000,
-        );
-
-        let decoded = decode_adjust_position_payload(&action.payload).unwrap();
-        assert_eq!(decoded.position_id, [0x99; 32]);
-        assert_eq!(decoded.new_notional, 2000);
-        assert_eq!(decoded.new_leverage_bps, 20000);
-    }
-
-    #[test]
-    fn test_decode_adjust_position_payload_wrong_size() {
-        assert!(decode_adjust_position_payload(&[0u8; 43]).is_none());
-        assert!(decode_adjust_position_payload(&[0u8; 45]).is_none());
-    }
-
-    #[test]
-    fn test_decode_swap_payload() {
-        let action = swap_action(
-            [0x11; 32],
-            [0xaa; 32],
-            [0xbb; 32],
-            5000,
-        );
-
-        let decoded = decode_swap_payload(&action.payload).unwrap();
-        assert_eq!(decoded.from_asset, [0xaa; 32]);
-        assert_eq!(decoded.to_asset, [0xbb; 32]);
-        assert_eq!(decoded.amount, 5000);
-    }
-
-    #[test]
-    fn test_decode_swap_payload_wrong_size() {
-        assert!(decode_swap_payload(&[0u8; 71]).is_none());
-        assert!(decode_swap_payload(&[0u8; 73]).is_none());
-    }
-
-    #[test]
-    fn test_encode_decode_roundtrip() {
-        // OpenPosition roundtrip
-        let op_action = open_position_action([0x11; 32], [0x42; 32], 9999, 50000, 0);
-        let op_decoded = decode_open_position_payload(&op_action.payload).unwrap();
-        assert_eq!(op_decoded.asset_id, [0x42; 32]);
-        assert_eq!(op_decoded.notional, 9999);
-        assert_eq!(op_decoded.leverage_bps, 50000);
-        assert_eq!(op_decoded.direction, 0);
-
-        // AdjustPosition roundtrip
-        let adj_action = adjust_position_action([0x11; 32], [0x88; 32], 12345, 30000);
-        let adj_decoded = decode_adjust_position_payload(&adj_action.payload).unwrap();
-        assert_eq!(adj_decoded.position_id, [0x88; 32]);
-        assert_eq!(adj_decoded.new_notional, 12345);
-        assert_eq!(adj_decoded.new_leverage_bps, 30000);
-
-        // Swap roundtrip
-        let swap = swap_action([0x11; 32], [0xcc; 32], [0xdd; 32], 77777);
-        let swap_decoded = decode_swap_payload(&swap.payload).unwrap();
-        assert_eq!(swap_decoded.from_asset, [0xcc; 32]);
-        assert_eq!(swap_decoded.to_asset, [0xdd; 32]);
-        assert_eq!(swap_decoded.amount, 77777);
+    fn test_action_types_have_expected_values() {
+        // Verify the actual numeric values match KernelOutputParser.sol
+        assert_eq!(ACTION_TYPE_CALL, 0x00000002);
+        assert_eq!(ACTION_TYPE_TRANSFER_ERC20, 0x00000003);
+        assert_eq!(ACTION_TYPE_NO_OP, 0x00000004);
+        assert_eq!(ACTION_TYPE_ECHO, 0x00000001);
     }
 }

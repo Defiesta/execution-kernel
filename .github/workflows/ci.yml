@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, feature/*]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --exclude risc0-methods -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace --exclude risc0-methods
+
+      - name: Test
+        run: cargo test --workspace --exclude risc0-methods
+
+  solidity:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Build contracts
+        run: forge build
+
+      - name: Run all Solidity tests
+        run: forge test -vv
+
+      - name: Run conformance tests specifically
+        run: forge test --match-path test/KernelOutputParser.Conformance.t.sol -vvv
+
+  agent-pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build agent-pack
+        run: cargo build -p agent-pack
+
+      - name: Test agent-pack
+        run: cargo test -p agent-pack
+
+      - name: Verify example manifest structure
+        run: |
+          cargo run -p agent-pack -- verify \
+            --structure-only \
+            --manifest dist/agent-pack.example.json
+
+      - name: Create bundle from fixture
+        run: |
+          cargo run -p agent-pack -- pack \
+            --manifest crates/agent-pack/tests/fixtures/test-manifest.json \
+            --elf crates/agent-pack/tests/fixtures/mock-guest.elf \
+            --out bundle-example
+
+      - name: Verify packed bundle
+        run: |
+          cargo run -p agent-pack -- verify \
+            --manifest bundle-example/agent-pack.json \
+            --base-dir bundle-example
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-pack-bundle-example
+          path: bundle-example/
+
+  agent-pack-onchain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build agent-pack with onchain feature
+        run: cargo build -p agent-pack --features onchain
+
+      - name: Test agent-pack with onchain feature
+        run: cargo test -p agent-pack --features onchain
+
+      - name: Clippy with onchain feature
+        run: cargo clippy -p agent-pack --features onchain -- -D warnings
+
+  # Optional: Build with risc0 feature (requires additional setup)
+  # Uncomment when risc0 toolchain is available in CI
+  # agent-pack-risc0:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: dtolnay/rust-toolchain@stable
+  #     - uses: risc0/risc0/.github/actions/install@main
+  #     - name: Build with risc0 feature
+  #       run: cargo build -p agent-pack --features risc0

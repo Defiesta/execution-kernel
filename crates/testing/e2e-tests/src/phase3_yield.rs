@@ -80,7 +80,11 @@ pub fn build_kernel_input(
         constraint_set_hash: [0xbb; 32], // Default constraint set
         input_root: [0; 32],
         execution_nonce,
-        opaque_agent_inputs: build_yield_agent_input(vault_address, mock_yield_address, transfer_amount),
+        opaque_agent_inputs: build_yield_agent_input(
+            vault_address,
+            mock_yield_address,
+            transfer_amount,
+        ),
     }
 }
 
@@ -207,10 +211,7 @@ mod registration_info {
         println!();
 
         // IMAGE_ID (from methods crate - depends on zkvm-guest build)
-        let image_id_bytes: Vec<u8> = ZKVM_GUEST_ID
-            .iter()
-            .flat_map(|x| x.to_le_bytes())
-            .collect();
+        let image_id_bytes: Vec<u8> = ZKVM_GUEST_ID.iter().flat_map(|x| x.to_le_bytes()).collect();
         println!("IMAGE_ID (for KernelExecutionVerifier.registerAgent):");
         println!("  0x{}", hex::encode(&image_id_bytes));
         println!();
@@ -231,7 +232,9 @@ mod registration_info {
         println!("══════════════════════════════════════════════════════════════════");
         println!();
         println!("export IMAGE_ID=0x{}", hex::encode(&image_id_bytes));
-        println!("export AGENT_ID=0x0000000000000000000000000000000000000000000000000000000000000001");
+        println!(
+            "export AGENT_ID=0x0000000000000000000000000000000000000000000000000000000000000001"
+        );
         println!();
         println!("# Register agent with verifier:");
         println!("cast send $VERIFIER_ADDRESS \"registerAgent(bytes32,bytes32)\" $AGENT_ID $IMAGE_ID --private-key $PRIVATE_KEY --rpc-url $RPC_URL");
@@ -313,7 +316,10 @@ mod zkvm_tests {
         assert_eq!(journal.protocol_version, PROTOCOL_VERSION);
         assert_eq!(journal.kernel_version, KERNEL_VERSION);
         assert_eq!(journal.agent_id, agent_id);
-        assert_eq!(journal.agent_code_hash, example_yield_agent::AGENT_CODE_HASH);
+        assert_eq!(
+            journal.agent_code_hash,
+            example_yield_agent::AGENT_CODE_HASH
+        );
         assert_eq!(journal.execution_nonce, 1);
 
         // Verify input commitment
@@ -338,13 +344,14 @@ mod zkvm_tests {
             encoded_seal.extend_from_slice(selector);
             encoded_seal.extend_from_slice(&groth16_receipt.seal);
 
-            let image_id_bytes: Vec<u8> = ZKVM_GUEST_ID
-                .iter()
-                .flat_map(|x| x.to_le_bytes())
-                .collect();
+            let image_id_bytes: Vec<u8> =
+                ZKVM_GUEST_ID.iter().flat_map(|x| x.to_le_bytes()).collect();
 
             println!("\n=== On-chain verification data (yield agent) ===");
-            println!("seal (with selector, hex): 0x{}", hex::encode(&encoded_seal));
+            println!(
+                "seal (with selector, hex): 0x{}",
+                hex::encode(&encoded_seal)
+            );
             println!("seal length: {} bytes", encoded_seal.len());
             println!("journal (hex): 0x{}", hex::encode(&journal_bytes));
             println!("journal length: {} bytes", journal_bytes.len());
@@ -457,8 +464,7 @@ mod onchain_tests {
         let yield_source_bytes: [u8; 20] = config.mock_yield_address.into_array();
 
         // Setup provider and wallet with recommended fillers for gas estimation
-        let signer = PrivateKeySigner::from_str(&config.private_key)
-            .expect("Invalid private key");
+        let signer = PrivateKeySigner::from_str(&config.private_key).expect("Invalid private key");
         let wallet = EthereumWallet::from(signer);
         let provider = ProviderBuilder::new()
             .with_recommended_fillers()
@@ -470,12 +476,22 @@ mod onchain_tests {
         let yield_source = IMockYieldSource::new(config.mock_yield_address, &provider);
 
         // Get initial state
-        let initial_nonce = vault.lastExecutionNonce().call().await.expect("Failed to get nonce")._0;
+        let initial_nonce = vault
+            .lastExecutionNonce()
+            .call()
+            .await
+            .expect("Failed to get nonce")
+            ._0;
         let initial_vault_balance = provider
             .get_balance(config.vault_address)
             .await
             .expect("Failed to get balance");
-        let agent_id_bytes32: FixedBytes<32> = vault.agentId().call().await.expect("Failed to get agentId")._0;
+        let agent_id_bytes32: FixedBytes<32> = vault
+            .agentId()
+            .call()
+            .await
+            .expect("Failed to get agentId")
+            ._0;
         let agent_id: [u8; 32] = agent_id_bytes32.into();
 
         println!("=== Initial State ===");
@@ -523,23 +539,20 @@ mod onchain_tests {
         assert_eq!(journal.execution_status, ExecutionStatus::Success);
 
         // Extract Groth16 seal with selector prefix
-        let encoded_seal = if let risc0_zkvm::InnerReceipt::Groth16(groth16_receipt) = &receipt.inner
-        {
-            let selector = &groth16_receipt.verifier_parameters.as_bytes()[..4];
-            let mut seal = Vec::with_capacity(4 + groth16_receipt.seal.len());
-            seal.extend_from_slice(selector);
-            seal.extend_from_slice(&groth16_receipt.seal);
-            seal
-        } else {
-            panic!("Expected Groth16 receipt");
-        };
+        let encoded_seal =
+            if let risc0_zkvm::InnerReceipt::Groth16(groth16_receipt) = &receipt.inner {
+                let selector = &groth16_receipt.verifier_parameters.as_bytes()[..4];
+                let mut seal = Vec::with_capacity(4 + groth16_receipt.seal.len());
+                seal.extend_from_slice(selector);
+                seal.extend_from_slice(&groth16_receipt.seal);
+                seal
+            } else {
+                panic!("Expected Groth16 receipt");
+            };
 
         // Compute agent output bytes
-        let agent_output_bytes = compute_agent_output_bytes(
-            &vault_bytes,
-            &yield_source_bytes,
-            config.transfer_amount,
-        );
+        let agent_output_bytes =
+            compute_agent_output_bytes(&vault_bytes, &yield_source_bytes, config.transfer_amount);
 
         println!("\n=== Submitting Transaction ===");
         println!("Journal length: {} bytes", journal_bytes.len());
@@ -561,13 +574,21 @@ mod onchain_tests {
             .await
             .expect("Failed to get receipt");
 
-        println!("Transaction confirmed in block: {:?}", tx_receipt.block_number);
+        println!(
+            "Transaction confirmed in block: {:?}",
+            tx_receipt.block_number
+        );
         println!("Gas used: {:?}", tx_receipt.gas_used);
 
         // Verify results
         println!("\n=== Verifying Results ===");
 
-        let final_nonce = vault.lastExecutionNonce().call().await.expect("Failed to get nonce")._0;
+        let final_nonce = vault
+            .lastExecutionNonce()
+            .call()
+            .await
+            .expect("Failed to get nonce")
+            ._0;
         let final_vault_balance = provider
             .get_balance(config.vault_address)
             .await
@@ -576,11 +597,15 @@ mod onchain_tests {
             .deposits(config.vault_address)
             .call()
             .await
-            .expect("Failed to get deposits")._0;
+            .expect("Failed to get deposits")
+            ._0;
 
         println!("Final nonce: {}", final_nonce);
         println!("Final vault balance: {} wei", final_vault_balance);
-        println!("MockYieldSource deposits[vault]: {} wei", yield_source_deposit);
+        println!(
+            "MockYieldSource deposits[vault]: {} wei",
+            yield_source_deposit
+        );
 
         // Assertions
         assert_eq!(

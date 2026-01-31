@@ -5,7 +5,6 @@ pragma solidity ^0.8.20;
 /// @notice Mock yield source for testing that returns 10% yield on withdrawals
 /// @dev Only the designated vault can withdraw funds
 contract MockYieldSource {
-
     // ============ State ============
 
     /// @notice The vault address that can withdraw
@@ -68,7 +67,7 @@ contract MockYieldSource {
         uint256 totalAmount = principal + yieldAmount;
 
         // Transfer to vault
-        (bool success,) = vault.call{value: totalAmount}("");
+        (bool success,) = vault.call{ value: totalAmount }("");
         if (!success) revert TransferFailed();
 
         emit Withdrawn(depositor, principal, yieldAmount);

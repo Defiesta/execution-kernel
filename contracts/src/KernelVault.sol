@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {IKernelExecutionVerifier} from "./interfaces/IKernelExecutionVerifier.sol";
-import {IERC20} from "./interfaces/IERC20.sol";
-import {KernelOutputParser} from "./KernelOutputParser.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { IKernelExecutionVerifier } from "./interfaces/IKernelExecutionVerifier.sol";
+import { IERC20 } from "./interfaces/IERC20.sol";
+import { KernelOutputParser } from "./KernelOutputParser.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title KernelVault
 /// @notice MVP vault that executes agent actions verified by RISC Zero proofs
@@ -15,7 +15,6 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///      4. Verifies action commitment and parses actions from AgentOutput bytes
 ///      5. Share price adjusts automatically based on totalAssets/totalShares ratio
 contract KernelVault is ReentrancyGuard {
-
     // ============ Constants ============
 
     /// @notice Action type for generic contract call
@@ -68,18 +67,25 @@ contract KernelVault is ReentrancyGuard {
 
     /// @notice Emitted when an execution is applied
     event ExecutionApplied(
-        bytes32 indexed agentId, uint64 indexed executionNonce, bytes32 actionCommitment, uint256 actionCount
+        bytes32 indexed agentId,
+        uint64 indexed executionNonce,
+        bytes32 actionCommitment,
+        uint256 actionCount
     );
 
     /// @notice Emitted when an action is executed
-    event ActionExecuted(uint256 indexed actionIndex, uint32 actionType, bytes32 target, bool success);
+    event ActionExecuted(
+        uint256 indexed actionIndex, uint32 actionType, bytes32 target, bool success
+    );
 
     /// @notice Emitted when a no-op action is executed
     event NoOpActionExecuted(uint256 indexed actionIndex, uint32 actionType);
 
     /// @notice Emitted when a transfer action is executed (more detailed than ActionExecuted)
     /// @dev For transfers, `to` is the meaningful recipient (ActionExecuted.target is the token address)
-    event TransferExecuted(uint256 indexed actionIndex, address indexed token, address indexed to, uint256 amount);
+    event TransferExecuted(
+        uint256 indexed actionIndex, address indexed token, address indexed to, uint256 amount
+    );
 
     /// @notice Emitted when nonces are skipped (gap in sequence)
     event NoncesSkipped(uint64 indexed fromNonce, uint64 indexed toNonce, uint64 skippedCount);
@@ -159,7 +165,11 @@ contract KernelVault is ReentrancyGuard {
     /// @return sharesMinted Number of shares minted based on current exchange rate
     /// @dev MVP uses simple PPS math. First deposit is 1:1, subsequent deposits use
     ///      shares = assets * totalShares / totalAssets.
-    function depositERC20Tokens(uint256 assets) external nonReentrant returns (uint256 sharesMinted) {
+    function depositERC20Tokens(uint256 assets)
+        external
+        nonReentrant
+        returns (uint256 sharesMinted)
+    {
         if (address(asset) == address(0)) revert WrongDepositFunction();
         if (assets == 0) revert ZeroDeposit();
 
@@ -243,7 +253,7 @@ contract KernelVault is ReentrancyGuard {
         // Transfer tokens or ETH
         bool isETH = address(asset) == address(0);
         if (isETH) {
-            (bool success, ) = msg.sender.call{value: assetsOut}("");
+            (bool success,) = msg.sender.call{ value: assetsOut }("");
             if (!success) revert ETHTransferFailed();
         } else {
             bool success = asset.transfer(msg.sender, assetsOut);
@@ -259,9 +269,13 @@ contract KernelVault is ReentrancyGuard {
     /// @param journal The raw journal bytes (209 bytes)
     /// @param seal The RISC Zero proof seal
     /// @param agentOutputBytes The agent output bytes containing actions
-    function execute(bytes calldata journal, bytes calldata seal, bytes calldata agentOutputBytes) external nonReentrant {
+    function execute(bytes calldata journal, bytes calldata seal, bytes calldata agentOutputBytes)
+        external
+        nonReentrant
+    {
         // 1. Verify proof and parse journal
-        IKernelExecutionVerifier.ParsedJournal memory parsed = verifier.verifyAndParse(journal, seal);
+        IKernelExecutionVerifier.ParsedJournal memory parsed =
+            verifier.verifyAndParse(journal, seal);
 
         // 2. Verify agent ID matches
         if (parsed.agentId != agentId) {
@@ -297,7 +311,8 @@ contract KernelVault is ReentrancyGuard {
         lastExecutionNonce = providedNonce;
 
         // 6. Parse actions from agentOutputBytes
-        KernelOutputParser.Action[] memory actions = KernelOutputParser.parseActions(agentOutputBytes);
+        KernelOutputParser.Action[] memory actions =
+            KernelOutputParser.parseActions(agentOutputBytes);
 
         // 7. Execute actions in order (atomic - any failure reverts entire execution)
         for (uint256 i = 0; i < actions.length; i++) {
@@ -305,7 +320,9 @@ contract KernelVault is ReentrancyGuard {
         }
 
         // 8. Emit execution event
-        emit ExecutionApplied(parsed.agentId, parsed.executionNonce, parsed.actionCommitment, actions.length);
+        emit ExecutionApplied(
+            parsed.agentId, parsed.executionNonce, parsed.actionCommitment, actions.length
+        );
     }
 
     // ============ Internal ============
@@ -314,7 +331,6 @@ contract KernelVault is ReentrancyGuard {
     /// @param index Action index (for events)
     /// @param action The action to execute
     function _executeAction(uint256 index, KernelOutputParser.Action memory action) internal {
-        
         lastExecutionTimestamp = block.timestamp;
 
         if (action.actionType == ACTION_TYPE_TRANSFER_ERC20) {
@@ -331,13 +347,16 @@ contract KernelVault is ReentrancyGuard {
     /// @notice Execute a TRANSFER_ERC20 action (also handles ETH if token is address(0))
     /// @dev Payload format: abi.encode(address token, address to, uint256 amount)
     ///      MVP: only allows transfers of the vault's single asset
-    function _executeTransferERC20(uint256 index, KernelOutputParser.Action memory action) internal {
+    function _executeTransferERC20(uint256 index, KernelOutputParser.Action memory action)
+        internal
+    {
         // Decode payload: (address token, address to, uint256 amount)
         if (action.payload.length != 96) {
             revert InvalidTransferPayload();
         }
 
-        (address token, address to, uint256 amount) = abi.decode(action.payload, (address, address, uint256));
+        (address token, address to, uint256 amount) =
+            abi.decode(action.payload, (address, address, uint256));
 
         // MVP: enforce single-asset - only allow transfers of the vault's asset
         if (token != address(asset)) {
@@ -347,7 +366,7 @@ contract KernelVault is ReentrancyGuard {
         // Execute transfer (ETH or ERC20)
         if (token == address(0)) {
             // ETH transfer
-            (bool success, ) = to.call{value: amount}("");
+            (bool success,) = to.call{ value: amount }("");
             if (!success) revert ETHTransferFailed();
         } else {
             // ERC20 transfer
@@ -378,7 +397,7 @@ contract KernelVault is ReentrancyGuard {
         address target = address(uint160(uint256(action.target)));
 
         // Execute call
-        (bool success, bytes memory returnData) = target.call{value: value}(callData);
+        (bool success, bytes memory returnData) = target.call{ value: value }(callData);
         if (!success) {
             revert CallFailed(action.target, returnData);
         }
@@ -403,7 +422,7 @@ contract KernelVault is ReentrancyGuard {
     function convertToShares(uint256 assets) public view returns (uint256) {
         uint256 supply = totalShares;
         if (supply == 0) return assets;
-        
+
         if (totalAssets() == 0) return 0; // Prevent division by zero
         return (assets * supply) / totalAssets();
     }
@@ -420,6 +439,5 @@ contract KernelVault is ReentrancyGuard {
     }
 
     /// @notice Allow receiving ETH for CALL actions with value
-    receive() external payable {}
-
+    receive() external payable { }
 }

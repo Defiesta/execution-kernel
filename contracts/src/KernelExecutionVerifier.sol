@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {IRiscZeroVerifier} from "./interfaces/IRiscZeroVerifier.sol";
+import { IRiscZeroVerifier } from "./interfaces/IRiscZeroVerifier.sol";
 
 /// @title KernelExecutionVerifier
 /// @notice Verifies RISC Zero proofs of zkVM kernel execution and parses KernelJournalV1
@@ -140,7 +140,7 @@ contract KernelExecutionVerifier {
     /// @param seal The RISC Zero proof seal
     /// @return parsed The parsed and validated journal fields
     function verifyAndParse(bytes calldata journal, bytes calldata seal)
-        external 
+        external
         view
         returns (ParsedJournal memory parsed)
     {
