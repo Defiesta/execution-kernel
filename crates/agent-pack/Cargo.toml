@@ -20,9 +20,14 @@ thiserror = "2"
 # Optional: for IMAGE_ID computation
 risc0-zkvm = { version = "3.0", optional = true, default-features = false }
 
+# Optional: for on-chain verification
+alloy = { version = "0.8", features = ["providers", "transports", "contract"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+
 [dev-dependencies]
 tempfile = "3"
 
 [features]
 default = []
 risc0 = ["dep:risc0-zkvm"]
+onchain = ["dep:alloy", "dep:tokio"]

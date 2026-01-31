@@ -485,7 +485,10 @@ mod tests {
     fn test_write_u64_le() {
         let mut buf = Vec::new();
         write_u64_le(&mut buf, 0x123456789ABCDEF0);
-        assert_eq!(buf, alloc::vec![0xF0, 0xDE, 0xBC, 0x9A, 0x78, 0x56, 0x34, 0x12]);
+        assert_eq!(
+            buf,
+            alloc::vec![0xF0, 0xDE, 0xBC, 0x9A, 0x78, 0x56, 0x34, 0x12]
+        );
     }
 
     #[test]

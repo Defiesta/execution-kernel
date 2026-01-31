@@ -2,53 +2,60 @@
 //!
 //! This module provides unskippable constraint checking for agent outputs.
 //! See spec/constraints.md for the full specification.
+//!
+//! # On-Chain Executable Action Types
+//!
+//! For protocol v1, the ONLY supported action types are those executable
+//! by KernelVault on-chain:
+//!
+//! - [`ACTION_TYPE_CALL`] (0x00000002) - Generic contract call
+//! - [`ACTION_TYPE_TRANSFER_ERC20`] (0x00000003) - ERC20 token transfer
+//! - [`ACTION_TYPE_NO_OP`] (0x00000004) - No operation (skipped)
+//!
+//! Any agent emitting actions with unknown action types will trigger a
+//! constraint violation with [`ConstraintViolationReason::UnknownActionType`].
+//!
+//! # Important Notes
+//!
+//! Higher-level strategy concepts (e.g., "open position", "swap") are agent
+//! abstractions that must be compiled down to CALL or TRANSFER_ERC20 actions.
+//! The constraint engine only validates executable action types.
 
 use kernel_core::{
-    AgentOutput, ActionV1, ConstraintError, ConstraintViolation, ConstraintViolationReason,
+    ActionV1, AgentOutput, ConstraintError, ConstraintViolation, ConstraintViolationReason,
     KernelInputV1, MAX_ACTIONS_PER_OUTPUT, MAX_ACTION_PAYLOAD_BYTES,
 };
 
 // ============================================================================
-// Action Type Constants
+// Action Type Constants (re-exported from kernel-core)
 // ============================================================================
+//
+// These are the ONLY supported action types for protocol v1.
+// kernel-core is the single source of truth for action type values.
 
-/// Echo/test action (TrivialAgent)
+/// CALL action type for on-chain execution (0x00000002).
+pub use kernel_core::ACTION_TYPE_CALL;
+
+/// ERC20 transfer action type for on-chain execution (0x00000003).
+pub use kernel_core::ACTION_TYPE_TRANSFER_ERC20;
+
+/// No-op action type (0x00000004).
+pub use kernel_core::ACTION_TYPE_NO_OP;
+
+/// Echo action type for testing (0x00000001).
+///
+/// Only available with the `testing` feature or in test mode.
+/// This action type is NOT executable by KernelVault.
+///
+/// Note: This is defined locally rather than re-exported from kernel-core
+/// because the cfg gates don't propagate across crate boundaries.
+#[cfg(any(test, feature = "testing"))]
 pub const ACTION_TYPE_ECHO: u32 = 0x00000001;
-
-/// Open a new trading position (kernel-internal action type)
-/// NOTE: This has the same value as ACTION_TYPE_CALL but different semantics.
-/// Use ACTION_TYPE_CALL for on-chain vault execution.
-pub const ACTION_TYPE_OPEN_POSITION: u32 = 0x00000002;
-
-/// Close an existing position
-pub const ACTION_TYPE_CLOSE_POSITION: u32 = 0x00000003;
-
-/// Modify position size or leverage
-pub const ACTION_TYPE_ADJUST_POSITION: u32 = 0x00000004;
-
-/// Asset swap/exchange
-pub const ACTION_TYPE_SWAP: u32 = 0x00000005;
-
-// ============================================================================
-// On-Chain Execution Action Types (matches KernelOutputParser.sol)
-// ============================================================================
-
-/// CALL action type for on-chain execution via KernelVault
-/// Payload: abi.encode(uint256 value, bytes callData)
-pub const ACTION_TYPE_CALL: u32 = 0x00000002;
-
-/// ERC20 transfer action type for on-chain execution
-pub const ACTION_TYPE_TRANSFER_ERC20: u32 = 0x00000003;
-
-/// No-op action type (skipped during execution)
-pub const ACTION_TYPE_NO_OP: u32 = 0x00000004;
 
 /// SHA-256 hash of empty AgentOutput encoding [0x00, 0x00, 0x00, 0x00]
 pub const EMPTY_OUTPUT_COMMITMENT: [u8; 32] = [
-    0xdf, 0x3f, 0x61, 0x98, 0x04, 0xa9, 0x2f, 0xdb,
-    0x40, 0x57, 0x19, 0x2d, 0xc4, 0x3d, 0xd7, 0x48,
-    0xea, 0x77, 0x8a, 0xdc, 0x52, 0xbc, 0x49, 0x8c,
-    0xe8, 0x05, 0x24, 0xc0, 0x14, 0xb8, 0x11, 0x19,
+    0xdf, 0x3f, 0x61, 0x98, 0x04, 0xa9, 0x2f, 0xdb, 0x40, 0x57, 0x19, 0x2d, 0xc4, 0x3d, 0xd7, 0x48,
+    0xea, 0x77, 0x8a, 0xdc, 0x52, 0xbc, 0x49, 0x8c, 0xe8, 0x05, 0x24, 0xc0, 0x14, 0xb8, 0x11, 0x19,
 ];
 
 // ============================================================================
@@ -63,9 +70,9 @@ pub const EMPTY_OUTPUT_COMMITMENT: [u8; 32] = [
 pub struct ConstraintSetV1 {
     /// Version (must be 1)
     pub version: u32,
-    /// Maximum position size in base units
+    /// Maximum position size in base units (reserved for future use)
     pub max_position_notional: u64,
-    /// Maximum leverage in basis points (10000 = 1x)
+    /// Maximum leverage in basis points (reserved for future use)
     pub max_leverage_bps: u32,
     /// Maximum drawdown in basis points (10000 = 100%)
     pub max_drawdown_bps: u32,
@@ -73,13 +80,7 @@ pub struct ConstraintSetV1 {
     pub cooldown_seconds: u32,
     /// Maximum actions per output
     pub max_actions_per_output: u32,
-    /// Single allowed asset ID (zero = all assets allowed)
-    ///
-    /// In P0.3, this field supports single-asset whitelist semantics:
-    /// - If zero ([0u8; 32]), all assets are allowed
-    /// - If non-zero, only the exact asset_id matching this value is allowed
-    ///
-    /// Future versions may support multi-asset whitelists via Merkle proofs.
+    /// Single allowed asset ID (reserved for future use)
     pub allowed_asset_id: [u8; 32],
 }
 
@@ -89,11 +90,11 @@ impl Default for ConstraintSetV1 {
         Self {
             version: 1,
             max_position_notional: u64::MAX,
-            max_leverage_bps: 100_000,  // 10x max leverage
-            max_drawdown_bps: 10_000,   // 100% (disabled)
+            max_leverage_bps: 100_000, // 10x max leverage
+            max_drawdown_bps: 10_000,  // 100% (disabled)
             cooldown_seconds: 0,
             max_actions_per_output: MAX_ACTIONS_PER_OUTPUT as u32,
-            allowed_asset_id: [0u8; 32],  // All assets allowed
+            allowed_asset_id: [0u8; 32], // All assets allowed
         }
     }
 }
@@ -147,120 +148,6 @@ impl StateSnapshotV1 {
 }
 
 // ============================================================================
-// Action Payload Structures
-// ============================================================================
-
-/// OpenPosition payload (action type 0x00000002)
-#[derive(Clone, Debug)]
-pub struct OpenPositionPayload {
-    pub asset_id: [u8; 32],
-    pub notional: u64,
-    pub leverage_bps: u32,
-    pub direction: u8,
-}
-
-impl OpenPositionPayload {
-    /// Exact size required for OpenPosition payload (P0.3: strict length enforcement)
-    pub const SIZE: usize = 45;
-
-    /// Decode an OpenPosition payload from bytes.
-    ///
-    /// Returns None if payload length is not exactly SIZE bytes.
-    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
-    pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() != Self::SIZE {
-            return None;
-        }
-        Some(Self {
-            asset_id: payload[0..32].try_into().ok()?,
-            notional: u64::from_le_bytes(payload[32..40].try_into().ok()?),
-            leverage_bps: u32::from_le_bytes(payload[40..44].try_into().ok()?),
-            direction: payload[44],
-        })
-    }
-}
-
-/// ClosePosition payload (action type 0x00000003)
-#[derive(Clone, Debug)]
-pub struct ClosePositionPayload {
-    pub position_id: [u8; 32],
-}
-
-impl ClosePositionPayload {
-    /// Exact size required for ClosePosition payload (P0.3: strict length enforcement)
-    pub const SIZE: usize = 32;
-
-    /// Decode a ClosePosition payload from bytes.
-    ///
-    /// Returns None if payload length is not exactly SIZE bytes.
-    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
-    pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() != Self::SIZE {
-            return None;
-        }
-        Some(Self {
-            position_id: payload[0..32].try_into().ok()?,
-        })
-    }
-}
-
-/// AdjustPosition payload (action type 0x00000004)
-#[derive(Clone, Debug)]
-pub struct AdjustPositionPayload {
-    pub position_id: [u8; 32],
-    pub new_notional: u64,
-    pub new_leverage_bps: u32,
-}
-
-impl AdjustPositionPayload {
-    /// Exact size required for AdjustPosition payload (P0.3: strict length enforcement)
-    pub const SIZE: usize = 44;
-
-    /// Decode an AdjustPosition payload from bytes.
-    ///
-    /// Returns None if payload length is not exactly SIZE bytes.
-    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
-    pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() != Self::SIZE {
-            return None;
-        }
-        Some(Self {
-            position_id: payload[0..32].try_into().ok()?,
-            new_notional: u64::from_le_bytes(payload[32..40].try_into().ok()?),
-            new_leverage_bps: u32::from_le_bytes(payload[40..44].try_into().ok()?),
-        })
-    }
-}
-
-/// Swap payload (action type 0x00000005)
-#[derive(Clone, Debug)]
-pub struct SwapPayload {
-    pub from_asset: [u8; 32],
-    pub to_asset: [u8; 32],
-    pub amount: u64,
-}
-
-impl SwapPayload {
-    /// Exact size required for Swap payload (P0.3: strict length enforcement)
-    pub const SIZE: usize = 72;
-
-    /// Decode a Swap payload from bytes.
-    ///
-    /// Returns None if payload length is not exactly SIZE bytes.
-    /// P0.3: Trailing bytes are rejected to prevent encoding malleability.
-    pub fn decode(payload: &[u8]) -> Option<Self> {
-        if payload.len() != Self::SIZE {
-            return None;
-        }
-        Some(Self {
-            from_asset: payload[0..32].try_into().ok()?,
-            to_asset: payload[32..64].try_into().ok()?,
-            amount: u64::from_le_bytes(payload[64..72].try_into().ok()?),
-        })
-    }
-}
-
-// ============================================================================
 // Constraint Metadata (Legacy compatibility)
 // ============================================================================
 
@@ -282,8 +169,17 @@ pub struct ConstraintMeta {
 ///
 /// This is the main entry point for constraint checking. It validates:
 /// 1. Output structure (action count, payload sizes)
-/// 2. Per-action constraints (action type, payload schema, whitelist, bounds)
+/// 2. Per-action constraints (action type validity, payload format)
 /// 3. Global constraints (cooldown, drawdown)
+///
+/// # Supported Action Types
+///
+/// For protocol v1, only on-chain executable action types are allowed:
+/// - `ACTION_TYPE_CALL` (0x00000002) - Must have valid ABI-encoded payload
+/// - `ACTION_TYPE_TRANSFER_ERC20` (0x00000003) - Must have 96-byte payload
+/// - `ACTION_TYPE_NO_OP` (0x00000004) - Must have empty payload
+///
+/// Any other action type triggers `UnknownActionType` violation.
 ///
 /// # Arguments
 /// * `input` - The kernel input containing state snapshot
@@ -320,15 +216,12 @@ pub fn enforce_constraints(
         ));
     }
 
-    // Note: max_leverage_bps == 0 is valid (would reject all leveraged positions)
-    // Note: cooldown_seconds has no upper bound validation (operator choice)
-
     // 2. Validate output structure
     check_output_structure(proposed, constraint_set)?;
 
     // 3. Validate each action
     for (index, action) in proposed.actions.iter().enumerate() {
-        validate_action(action, index, constraint_set)?;
+        validate_action(action, index)?;
     }
 
     // 4. Parse state snapshot (optional)
@@ -380,186 +273,32 @@ fn check_output_structure(
 }
 
 /// Validate a single action.
-fn validate_action(
-    action: &ActionV1,
-    index: usize,
-    constraint_set: &ConstraintSetV1,
-) -> Result<(), ConstraintViolation> {
+///
+/// For protocol v1, only on-chain executable action types are allowed:
+/// - CALL (0x02): ABI-encoded (uint256 value, bytes callData), min 96 bytes
+/// - TRANSFER_ERC20 (0x03): ABI-encoded (address token, address to, uint256 amount), exactly 96 bytes
+/// - NO_OP (0x04): empty payload
+///
+/// ECHO (0x01) is only allowed in test builds.
+fn validate_action(action: &ActionV1, index: usize) -> Result<(), ConstraintViolation> {
+    // Note: ECHO (0x01) is only valid in test/testing builds
+    #[cfg(any(test, feature = "testing"))]
+    if action.action_type == ACTION_TYPE_ECHO {
+        return Ok(());
+    }
+
     match action.action_type {
-        ACTION_TYPE_ECHO => {
-            // Echo action has no specific constraints
-            Ok(())
-        }
-        // ACTION_TYPE_CALL and ACTION_TYPE_OPEN_POSITION share the same value (0x00000002)
-        // Distinguish by payload size: CALL >= 96 bytes (ABI-encoded), OPEN_POSITION = 45 bytes
-        ACTION_TYPE_CALL => {
-            if action.payload.len() >= 96 {
-                // CALL action (on-chain execution)
-                validate_call_action(action, index)
-            } else if action.payload.len() == OpenPositionPayload::SIZE {
-                // OPEN_POSITION action (kernel internal)
-                validate_open_position(action, index, constraint_set)
-            } else {
-                // Invalid payload size for either type
-                Err(ConstraintViolation::action(
-                    ConstraintViolationReason::InvalidActionPayload,
-                    index,
-                ))
-            }
-        }
-        // ACTION_TYPE_TRANSFER_ERC20 and ACTION_TYPE_CLOSE_POSITION share value 0x00000003
-        ACTION_TYPE_CLOSE_POSITION => {
-            if action.payload.len() == ClosePositionPayload::SIZE {
-                validate_close_position(action, index)
-            } else if action.payload.len() == 96 {
-                // ERC20 transfer (on-chain): abi.encode(address token, address to, uint256 amount)
-                validate_transfer_erc20_action(action, index)
-            } else {
-                Err(ConstraintViolation::action(
-                    ConstraintViolationReason::InvalidActionPayload,
-                    index,
-                ))
-            }
-        }
-        // ACTION_TYPE_NO_OP and ACTION_TYPE_ADJUST_POSITION share value 0x00000004
-        ACTION_TYPE_ADJUST_POSITION => {
-            if action.payload.is_empty() {
-                // NO_OP action
-                Ok(())
-            } else if action.payload.len() == AdjustPositionPayload::SIZE {
-                validate_adjust_position(action, index, constraint_set)
-            } else {
-                Err(ConstraintViolation::action(
-                    ConstraintViolationReason::InvalidActionPayload,
-                    index,
-                ))
-            }
-        }
-        ACTION_TYPE_SWAP => {
-            validate_swap(action, index, constraint_set)
-        }
+        x if x == ACTION_TYPE_CALL => validate_call_action(action, index),
+        x if x == ACTION_TYPE_TRANSFER_ERC20 => validate_transfer_erc20_action(action, index),
+        x if x == ACTION_TYPE_NO_OP => validate_no_op_action(action, index),
         _ => {
-            // Unknown action type
+            // Unknown action type - not executable on-chain
             Err(ConstraintViolation::action(
                 ConstraintViolationReason::UnknownActionType,
                 index,
             ))
         }
     }
-}
-
-/// Validate OpenPosition action.
-fn validate_open_position(
-    action: &ActionV1,
-    index: usize,
-    constraint_set: &ConstraintSetV1,
-) -> Result<(), ConstraintViolation> {
-    // Decode payload
-    let payload = OpenPositionPayload::decode(&action.payload).ok_or_else(|| {
-        ConstraintViolation::action(ConstraintViolationReason::InvalidActionPayload, index)
-    })?;
-
-    // Check asset whitelist
-    if !is_asset_whitelisted(&payload.asset_id, constraint_set) {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::AssetNotWhitelisted,
-            index,
-        ));
-    }
-
-    // Check position size
-    if payload.notional > constraint_set.max_position_notional {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::PositionTooLarge,
-            index,
-        ));
-    }
-
-    // Check leverage
-    if payload.leverage_bps > constraint_set.max_leverage_bps {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::LeverageTooHigh,
-            index,
-        ));
-    }
-
-    // Validate direction
-    if payload.direction > 1 {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::InvalidActionPayload,
-            index,
-        ));
-    }
-
-    Ok(())
-}
-
-/// Validate ClosePosition action.
-fn validate_close_position(action: &ActionV1, index: usize) -> Result<(), ConstraintViolation> {
-    // Just validate payload structure
-    ClosePositionPayload::decode(&action.payload).ok_or_else(|| {
-        ConstraintViolation::action(ConstraintViolationReason::InvalidActionPayload, index)
-    })?;
-
-    Ok(())
-}
-
-/// Validate AdjustPosition action.
-fn validate_adjust_position(
-    action: &ActionV1,
-    index: usize,
-    constraint_set: &ConstraintSetV1,
-) -> Result<(), ConstraintViolation> {
-    // Decode payload
-    let payload = AdjustPositionPayload::decode(&action.payload).ok_or_else(|| {
-        ConstraintViolation::action(ConstraintViolationReason::InvalidActionPayload, index)
-    })?;
-
-    // Check position size (if non-zero, meaning it's being changed)
-    if payload.new_notional > 0 && payload.new_notional > constraint_set.max_position_notional {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::PositionTooLarge,
-            index,
-        ));
-    }
-
-    // Check leverage (if non-zero, meaning it's being changed)
-    if payload.new_leverage_bps > 0 && payload.new_leverage_bps > constraint_set.max_leverage_bps {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::LeverageTooHigh,
-            index,
-        ));
-    }
-
-    Ok(())
-}
-
-/// Validate Swap action.
-fn validate_swap(
-    action: &ActionV1,
-    index: usize,
-    constraint_set: &ConstraintSetV1,
-) -> Result<(), ConstraintViolation> {
-    // Decode payload
-    let payload = SwapPayload::decode(&action.payload).ok_or_else(|| {
-        ConstraintViolation::action(ConstraintViolationReason::InvalidActionPayload, index)
-    })?;
-
-    // Check asset whitelist for both assets
-    if !is_asset_whitelisted(&payload.from_asset, constraint_set) {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::AssetNotWhitelisted,
-            index,
-        ));
-    }
-    if !is_asset_whitelisted(&payload.to_asset, constraint_set) {
-        return Err(ConstraintViolation::action(
-            ConstraintViolationReason::AssetNotWhitelisted,
-            index,
-        ));
-    }
-
-    Ok(())
 }
 
 /// Validate CALL action (on-chain execution).
@@ -596,7 +335,7 @@ fn validate_call_action(action: &ActionV1, index: usize) -> Result<(), Constrain
 
     let calldata_len = u256_from_be_bytes(&action.payload[64..96]);
     // Verify payload length matches declared calldata length (with 32-byte padding)
-    let expected_len = 96 + ((calldata_len as usize + 31) / 32) * 32;
+    let expected_len = 96 + (calldata_len as usize).div_ceil(32) * 32;
     if action.payload.len() != expected_len {
         return Err(ConstraintViolation::action(
             ConstraintViolationReason::InvalidActionPayload,
@@ -611,7 +350,10 @@ fn validate_call_action(action: &ActionV1, index: usize) -> Result<(), Constrain
 ///
 /// Payload format: abi.encode(address token, address to, uint256 amount)
 /// Size: exactly 96 bytes
-fn validate_transfer_erc20_action(action: &ActionV1, index: usize) -> Result<(), ConstraintViolation> {
+fn validate_transfer_erc20_action(
+    action: &ActionV1,
+    index: usize,
+) -> Result<(), ConstraintViolation> {
     if action.payload.len() != 96 {
         return Err(ConstraintViolation::action(
             ConstraintViolationReason::InvalidActionPayload,
@@ -639,6 +381,19 @@ fn validate_transfer_erc20_action(action: &ActionV1, index: usize) -> Result<(),
     Ok(())
 }
 
+/// Validate NO_OP action.
+///
+/// Payload must be empty.
+fn validate_no_op_action(action: &ActionV1, index: usize) -> Result<(), ConstraintViolation> {
+    if !action.payload.is_empty() {
+        return Err(ConstraintViolation::action(
+            ConstraintViolationReason::InvalidActionPayload,
+            index,
+        ));
+    }
+    Ok(())
+}
+
 /// Helper to read a u256 from big-endian bytes (only reads lower 64 bits for practical values)
 fn u256_from_be_bytes(bytes: &[u8]) -> u64 {
     // For practical values, we only need to check if upper bytes are zero
@@ -651,23 +406,6 @@ fn u256_from_be_bytes(bytes: &[u8]) -> u64 {
         return u64::MAX; // Value too large
     }
     u64::from_be_bytes(bytes[24..32].try_into().unwrap())
-}
-
-/// Check if an asset is allowed.
-///
-/// P0.3 single-asset whitelist semantics:
-/// - If `allowed_asset_id` is zero, all assets are allowed
-/// - If `allowed_asset_id` is non-zero, only exact matches are allowed
-///
-/// Future versions may support multi-asset whitelists via Merkle proofs.
-fn is_asset_whitelisted(asset_id: &[u8; 32], constraint_set: &ConstraintSetV1) -> bool {
-    // Zero allowed_asset_id means all assets are allowed
-    if constraint_set.allowed_asset_id == [0u8; 32] {
-        return true;
-    }
-
-    // P0.3: Exact match required for single-asset whitelist
-    asset_id == &constraint_set.allowed_asset_id
 }
 
 /// Validate global constraints (cooldown, drawdown).
@@ -703,9 +441,7 @@ fn validate_global_constraints(
 
         // Calculate drawdown in basis points
         // drawdown_bps = (peak - current) * 10000 / peak
-        let drawdown = snapshot
-            .peak_equity
-            .saturating_sub(snapshot.current_equity);
+        let drawdown = snapshot.peak_equity.saturating_sub(snapshot.current_equity);
         // SAFETY: peak_equity != 0 is verified above, so division cannot fail
         let drawdown_bps = drawdown
             .saturating_mul(10_000)
@@ -782,13 +518,54 @@ mod tests {
         }
     }
 
-    fn make_open_position_payload(notional: u64, leverage_bps: u32) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(45);
-        payload.extend_from_slice(&[0x42; 32]); // asset_id
-        payload.extend_from_slice(&notional.to_le_bytes());
-        payload.extend_from_slice(&leverage_bps.to_le_bytes());
-        payload.push(0); // direction = long
-        payload
+    /// Create a valid CALL action with proper ABI encoding
+    fn make_call_action(target_addr: [u8; 20], value: u128, calldata: &[u8]) -> ActionV1 {
+        let mut target = [0u8; 32];
+        target[12..32].copy_from_slice(&target_addr);
+
+        let data_len = calldata.len();
+        let padded_len = data_len.div_ceil(32) * 32;
+        let total_size = 96 + padded_len;
+
+        let mut payload = vec![0u8; total_size];
+
+        // value (uint256, big-endian)
+        payload[16..32].copy_from_slice(&value.to_be_bytes());
+
+        // offset (64 = 0x40)
+        payload[63] = 64;
+
+        // length
+        payload[95] = data_len as u8;
+
+        // calldata
+        payload[96..96 + data_len].copy_from_slice(calldata);
+
+        ActionV1 {
+            action_type: ACTION_TYPE_CALL,
+            target,
+            payload,
+        }
+    }
+
+    /// Create a valid TRANSFER_ERC20 action
+    fn make_transfer_erc20_action(token: [u8; 20], to: [u8; 20], amount: u128) -> ActionV1 {
+        let mut payload = vec![0u8; 96];
+
+        // token address (left-padded)
+        payload[12..32].copy_from_slice(&token);
+
+        // to address (left-padded)
+        payload[44..64].copy_from_slice(&to);
+
+        // amount (uint256, big-endian)
+        payload[80..96].copy_from_slice(&amount.to_be_bytes());
+
+        ActionV1 {
+            action_type: ACTION_TYPE_TRANSFER_ERC20,
+            target: [0u8; 32],
+            payload,
+        }
     }
 
     #[test]
@@ -801,6 +578,73 @@ mod tests {
 
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_call_action_passes() {
+        let input = make_test_input();
+        let output = AgentOutput {
+            actions: vec![make_call_action(
+                [0x11; 20],
+                1000,
+                &[0xab, 0xcd, 0xef, 0x12],
+            )],
+        };
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_transfer_erc20_action_passes() {
+        let input = make_test_input();
+        let output = AgentOutput {
+            actions: vec![make_transfer_erc20_action(
+                [0x11; 20], [0x22; 20], 1_000_000,
+            )],
+        };
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_no_op_action_passes() {
+        let input = make_test_input();
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_NO_OP,
+                target: [0u8; 32],
+                payload: vec![],
+            }],
+        };
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_no_op_with_payload_fails() {
+        let input = make_test_input();
+        let output = AgentOutput {
+            actions: vec![ActionV1 {
+                action_type: ACTION_TYPE_NO_OP,
+                target: [0u8; 32],
+                payload: vec![1, 2, 3], // Should be empty
+            }],
+        };
+        let constraints = ConstraintSetV1::default();
+
+        let result = enforce_constraints(&input, &output, &constraints);
+        assert!(result.is_err());
+        let violation = result.unwrap_err();
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidActionPayload
+        );
     }
 
     #[test]
@@ -818,50 +662,57 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::UnknownActionType);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::UnknownActionType
+        );
         assert_eq!(violation.action_index, Some(0));
     }
 
     #[test]
-    fn test_position_too_large_fails() {
+    fn test_invalid_call_payload_too_short() {
         let input = make_test_input();
         let output = AgentOutput {
             actions: vec![ActionV1 {
-                action_type: ACTION_TYPE_OPEN_POSITION,
-                target: [0x11; 32],
-                payload: make_open_position_payload(1_000_001, 10_000),
+                action_type: ACTION_TYPE_CALL,
+                target: {
+                    let mut t = [0u8; 32];
+                    t[12..32].copy_from_slice(&[0x11; 20]);
+                    t
+                },
+                payload: vec![0u8; 64], // Too short, needs at least 96
             }],
         };
-        let constraints = ConstraintSetV1 {
-            max_position_notional: 1_000_000,
-            ..ConstraintSetV1::default()
-        };
+        let constraints = ConstraintSetV1::default();
 
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::PositionTooLarge);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidActionPayload
+        );
     }
 
     #[test]
-    fn test_leverage_too_high_fails() {
+    fn test_invalid_transfer_payload_wrong_size() {
         let input = make_test_input();
         let output = AgentOutput {
             actions: vec![ActionV1 {
-                action_type: ACTION_TYPE_OPEN_POSITION,
-                target: [0x11; 32],
-                payload: make_open_position_payload(1_000, 60_000), // 6x leverage
+                action_type: ACTION_TYPE_TRANSFER_ERC20,
+                target: [0u8; 32],
+                payload: vec![0u8; 64], // Should be exactly 96
             }],
         };
-        let constraints = ConstraintSetV1 {
-            max_leverage_bps: 50_000, // 5x max
-            ..ConstraintSetV1::default()
-        };
+        let constraints = ConstraintSetV1::default();
 
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::LeverageTooHigh);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidActionPayload
+        );
     }
 
     #[test]
@@ -888,7 +739,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::CooldownNotElapsed);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::CooldownNotElapsed
+        );
     }
 
     #[test]
@@ -915,7 +769,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::DrawdownExceeded);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::DrawdownExceeded
+        );
     }
 
     #[test]
@@ -929,18 +786,47 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::InvalidOutputStructure);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidOutputStructure
+        );
     }
 
     #[test]
     fn test_empty_output_commitment_constant() {
         // Verify the empty output commitment constant is correct
-        use kernel_core::{CanonicalEncode, compute_action_commitment};
+        use kernel_core::{compute_action_commitment, CanonicalEncode};
 
         let empty_output = AgentOutput { actions: vec![] };
         let encoded = empty_output.encode().unwrap();
         let commitment = compute_action_commitment(&encoded);
 
         assert_eq!(commitment, EMPTY_OUTPUT_COMMITMENT);
+    }
+
+    // ========================================================================
+    // Action Type Re-export Invariant Tests
+    // ========================================================================
+
+    #[test]
+    fn test_action_types_match_kernel_core() {
+        // Verify that our re-exports match kernel-core's values
+        assert_eq!(ACTION_TYPE_CALL, kernel_core::ACTION_TYPE_CALL);
+        assert_eq!(
+            ACTION_TYPE_TRANSFER_ERC20,
+            kernel_core::ACTION_TYPE_TRANSFER_ERC20
+        );
+        assert_eq!(ACTION_TYPE_NO_OP, kernel_core::ACTION_TYPE_NO_OP);
+        // ACTION_TYPE_ECHO is locally available via cfg(test) but not from kernel_core
+        // unless kernel-core has the testing feature enabled
+        assert_eq!(ACTION_TYPE_ECHO, 0x00000001);
+    }
+
+    #[test]
+    fn test_action_types_match_solidity_values() {
+        // Verify the actual numeric values match KernelOutputParser.sol
+        assert_eq!(ACTION_TYPE_CALL, 0x00000002);
+        assert_eq!(ACTION_TYPE_TRANSFER_ERC20, 0x00000003);
+        assert_eq!(ACTION_TYPE_NO_OP, 0x00000004);
     }
 }

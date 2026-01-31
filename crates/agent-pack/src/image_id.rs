@@ -54,8 +54,8 @@ pub fn compute_image_id_from_file(elf_path: &Path) -> Result<[u8; 32], ImageIdEr
 pub fn compute_image_id_from_bytes(elf_bytes: &[u8]) -> Result<[u8; 32], ImageIdError> {
     use risc0_zkvm::compute_image_id;
 
-    let digest = compute_image_id(elf_bytes)
-        .map_err(|e| ImageIdError::Computation(e.to_string()))?;
+    let digest =
+        compute_image_id(elf_bytes).map_err(|e| ImageIdError::Computation(e.to_string()))?;
 
     // Convert Digest to [u32; 8], then to [u8; 32] little-endian.
     // This matches the on-chain format used in print_registration_info.rs:

@@ -24,6 +24,9 @@ default = []
 # Marker feature for guest-specific code paths (e.g., risc0-zkvm shims)
 guest = []
 
+# Enable testing-only action types (ACTION_TYPE_ECHO)
+testing = ["kernel-core/testing"]
+
 [lints.clippy]
 std_instead_of_alloc = "deny"
 std_instead_of_core = "deny"

@@ -50,7 +50,6 @@ pub fn compute_action_commitment(agent_output_bytes: &[u8]) -> [u8; 32] {
 /// This function allocates a `Vec<u8>` to hold the encoded bytes.
 /// For allocation-sensitive contexts (e.g., guest execution), consider
 /// using `encode()` with a pre-allocated buffer and `sha256()` directly.
-#[must_use]
 pub fn kernel_input_v1_commitment(input: &KernelInputV1) -> Result<[u8; 32], CodecError> {
     let bytes = input.encode()?;
     Ok(sha256(&bytes))

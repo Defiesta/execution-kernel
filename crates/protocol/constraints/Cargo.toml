@@ -5,3 +5,8 @@ edition = "2021"
 
 [dependencies]
 kernel-core = { path = "../kernel-core" }
+
+[features]
+default = []
+# Enable testing-only action types (ACTION_TYPE_ECHO)
+testing = ["kernel-core/testing"]

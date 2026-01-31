@@ -172,7 +172,7 @@ library KernelOutputParser {
                 revert MalformedOutput(actionStart, actionLen, offset - actionStart);
             }
 
-            actions[i] = Action({actionType: actionType, target: target, payload: payload});
+            actions[i] = Action({ actionType: actionType, target: target, payload: payload });
         }
 
         // Verify we consumed all data
@@ -269,7 +269,11 @@ library KernelOutputParser {
     }
 
     /// @notice Read a bytes32 from calldata using assembly for robustness
-    function _readBytes32(bytes calldata data, uint256 offset) private pure returns (bytes32 result) {
+    function _readBytes32(bytes calldata data, uint256 offset)
+        private
+        pure
+        returns (bytes32 result)
+    {
         // Copy 32 bytes from calldata into memory and load as bytes32
         assembly {
             // calldataload loads 32 bytes from calldata at the given offset

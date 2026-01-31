@@ -130,7 +130,8 @@ impl AgentPackManifest {
     /// - `artifacts.elf_sha256`
     /// - `build.cargo_lock_sha256`
     pub fn new_template(name: String, version: String, agent_id: String) -> Self {
-        let placeholder = "0xTODO_COMPUTE_THIS_VALUE_________________________________________________";
+        let placeholder =
+            "0xTODO_COMPUTE_THIS_VALUE_________________________________________________";
 
         Self {
             format_version: FORMAT_VERSION.to_string(),
@@ -149,7 +150,8 @@ impl AgentPackManifest {
             },
             build: BuildInfo {
                 cargo_lock_sha256: placeholder.to_string(),
-                build_command: "RISC0_USE_DOCKER=1 cargo build --release -p risc0-methods".to_string(),
+                build_command: "RISC0_USE_DOCKER=1 cargo build --release -p risc0-methods"
+                    .to_string(),
                 reproducible: true,
             },
             inputs: "TODO: Describe your agent's input format".to_string(),
@@ -172,14 +174,15 @@ impl AgentPackManifest {
 
     /// Loads a manifest from a file path.
     pub fn from_file(path: &std::path::Path) -> Result<Self, ManifestError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ManifestError::Io(e.to_string()))?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ManifestError::Io(e.to_string()))?;
         Self::from_json(&content).map_err(|e| ManifestError::Parse(e.to_string()))
     }
 
     /// Saves the manifest to a file path.
     pub fn to_file(&self, path: &std::path::Path) -> Result<(), ManifestError> {
-        let json = self.to_json_pretty()
+        let json = self
+            .to_json_pretty()
             .map_err(|e| ManifestError::Serialize(e.to_string()))?;
         std::fs::write(path, json).map_err(|e| ManifestError::Io(e.to_string()))
     }

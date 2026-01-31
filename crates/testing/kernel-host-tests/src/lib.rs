@@ -3,15 +3,14 @@ pub use kernel_guest_binding_yield::AGENT_CODE_HASH;
 
 #[cfg(test)]
 mod tests {
-    use kernel_core::*;
-    use kernel_core::codec::{
-        put_u32_le, put_u64_le, put_bytes32,
-        get_u32_le, get_u64_le, get_bytes32,
-        ensure_no_trailing_bytes,
-    };
-    use kernel_guest_binding_yield::kernel_main;
     use constraints::EMPTY_OUTPUT_COMMITMENT;
-    use kernel_sdk::prelude::{call_action, address_to_bytes32};
+    use kernel_core::codec::{
+        ensure_no_trailing_bytes, get_bytes32, get_u32_le, get_u64_le, put_bytes32, put_u32_le,
+        put_u64_le,
+    };
+    use kernel_core::*;
+    use kernel_guest_binding_yield::kernel_main;
+    use kernel_sdk::prelude::{address_to_bytes32, call_action};
 
     // Import the agent code hash from the linked yield-agent crate.
     // This is the compile-time constant that the kernel verifies against.
@@ -59,7 +58,11 @@ mod tests {
     /// This uses a dummy hash that will NOT match the linked agent,
     /// useful for testing hash mismatch scenarios.
     #[allow(dead_code)]
-    fn make_input_with_wrong_hash(vault: [u8; 20], yield_source: [u8; 20], amount: u64) -> KernelInputV1 {
+    fn make_input_with_wrong_hash(
+        vault: [u8; 20],
+        yield_source: [u8; 20],
+        amount: u64,
+    ) -> KernelInputV1 {
         let mut opaque_agent_inputs = Vec::with_capacity(48);
         opaque_agent_inputs.extend_from_slice(&vault);
         opaque_agent_inputs.extend_from_slice(&yield_source);
@@ -161,23 +164,25 @@ mod tests {
         // Create actions in non-canonical order
         let actions_unordered = vec![
             ActionV1 {
-                action_type: 2,  // Higher type
+                action_type: 2, // Higher type
                 target: [0x11; 32],
                 payload: vec![1],
             },
             ActionV1 {
-                action_type: 1,  // Lower type - should sort first
+                action_type: 1, // Lower type - should sort first
                 target: [0x22; 32],
                 payload: vec![2],
             },
             ActionV1 {
-                action_type: 1,  // Same type, different target
-                target: [0x11; 32],  // Lower target - should sort before [0x22]
+                action_type: 1,     // Same type, different target
+                target: [0x11; 32], // Lower target - should sort before [0x22]
                 payload: vec![3],
             },
         ];
 
-        let output1 = AgentOutput { actions: actions_unordered.clone() };
+        let output1 = AgentOutput {
+            actions: actions_unordered.clone(),
+        };
         let canonical1 = output1.into_canonical();
 
         // Verify ordering: action_type ascending, then target lexicographic
@@ -195,7 +200,9 @@ mod tests {
 
         // Different initial order should produce same canonical output
         let actions_reversed: Vec<ActionV1> = actions_unordered.iter().rev().cloned().collect();
-        let output2 = AgentOutput { actions: actions_reversed };
+        let output2 = AgentOutput {
+            actions: actions_reversed,
+        };
         let canonical2 = output2.into_canonical();
 
         // Encoding should be identical regardless of initial order
@@ -210,10 +217,9 @@ mod tests {
 
         // SHA256([1,2,3,4])
         let expected = [
-            0x9f, 0x64, 0xa7, 0x47, 0xe1, 0xb9, 0x7f, 0x13,
-            0x1f, 0xab, 0xb6, 0xb4, 0x47, 0x29, 0x6c, 0x9b,
-            0x6f, 0x02, 0x01, 0xe7, 0x9f, 0xb3, 0xc5, 0x35,
-            0x6e, 0x6c, 0x77, 0xe8, 0x9b, 0x6a, 0x80, 0x6a
+            0x9f, 0x64, 0xa7, 0x47, 0xe1, 0xb9, 0x7f, 0x13, 0x1f, 0xab, 0xb6, 0xb4, 0x47, 0x29,
+            0x6c, 0x9b, 0x6f, 0x02, 0x01, 0xe7, 0x9f, 0xb3, 0xc5, 0x35, 0x6e, 0x6c, 0x77, 0xe8,
+            0x9b, 0x6a, 0x80, 0x6a,
         ];
 
         assert_eq!(commitment, expected);
@@ -228,10 +234,9 @@ mod tests {
 
         // SHA256([0, 0, 0, 0]) - empty action list
         let expected = [
-            0xdf, 0x3f, 0x61, 0x98, 0x04, 0xa9, 0x2f, 0xdb,
-            0x40, 0x57, 0x19, 0x2d, 0xc4, 0x3d, 0xd7, 0x48,
-            0xea, 0x77, 0x8a, 0xdc, 0x52, 0xbc, 0x49, 0x8c,
-            0xe8, 0x05, 0x24, 0xc0, 0x14, 0xb8, 0x11, 0x19
+            0xdf, 0x3f, 0x61, 0x98, 0x04, 0xa9, 0x2f, 0xdb, 0x40, 0x57, 0x19, 0x2d, 0xc4, 0x3d,
+            0xd7, 0x48, 0xea, 0x77, 0x8a, 0xdc, 0x52, 0xbc, 0x49, 0x8c, 0xe8, 0x05, 0x24, 0xc0,
+            0x14, 0xb8, 0x11, 0x19,
         ];
 
         assert_eq!(commitment, expected);
@@ -258,7 +263,13 @@ mod tests {
         input_bytes[0..4].copy_from_slice(&999u32.to_le_bytes());
 
         let result = KernelInputV1::decode(&input_bytes);
-        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+        assert!(matches!(
+            result,
+            Err(CodecError::InvalidVersion {
+                expected: 1,
+                actual: 999
+            })
+        ));
     }
 
     #[test]
@@ -271,7 +282,13 @@ mod tests {
         input_bytes[4..8].copy_from_slice(&999u32.to_le_bytes());
 
         let result = KernelInputV1::decode(&input_bytes);
-        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+        assert!(matches!(
+            result,
+            Err(CodecError::InvalidVersion {
+                expected: 1,
+                actual: 999
+            })
+        ));
     }
 
     #[test]
@@ -294,7 +311,13 @@ mod tests {
         encoded[0..4].copy_from_slice(&999u32.to_le_bytes());
 
         let result = KernelJournalV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+        assert!(matches!(
+            result,
+            Err(CodecError::InvalidVersion {
+                expected: 1,
+                actual: 999
+            })
+        ));
     }
 
     #[test]
@@ -317,7 +340,13 @@ mod tests {
         encoded[4..8].copy_from_slice(&999u32.to_le_bytes());
 
         let result = KernelJournalV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+        assert!(matches!(
+            result,
+            Err(CodecError::InvalidVersion {
+                expected: 1,
+                actual: 999
+            })
+        ));
     }
 
     #[test]
@@ -443,7 +472,10 @@ mod tests {
         // We don't need actual payload data, decode will fail on length check
 
         let result = ActionV1::decode(&bytes);
-        assert!(matches!(result, Err(CodecError::ActionPayloadTooLarge { .. })));
+        assert!(matches!(
+            result,
+            Err(CodecError::ActionPayloadTooLarge { .. })
+        ));
     }
 
     #[test]
@@ -487,21 +519,27 @@ mod tests {
         *encoded.last_mut().unwrap() = 0xFF;
 
         let result = KernelJournalV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidExecutionStatus(0xFF))));
+        assert!(matches!(
+            result,
+            Err(CodecError::InvalidExecutionStatus(0xFF))
+        ));
 
         // Also verify that 0x00 is invalid (reserved to catch uninitialized memory)
         *encoded.last_mut().unwrap() = 0x00;
         let result = KernelJournalV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidExecutionStatus(0x00))));
+        assert!(matches!(
+            result,
+            Err(CodecError::InvalidExecutionStatus(0x00))
+        ));
     }
 
     #[test]
     fn test_determinism_with_edge_cases() {
         let test_cases = vec![
-            vec![],                              // Empty
-            vec![0; 48],                         // Valid size for yield agent
-            vec![0xFF; 100],                     // Repeated bytes
-            (0..48).collect::<Vec<u8>>(),        // Sequential bytes (valid size)
+            vec![],                       // Empty
+            vec![0; 48],                  // Valid size for yield agent
+            vec![0xFF; 100],              // Repeated bytes
+            (0..48).collect::<Vec<u8>>(), // Sequential bytes (valid size)
         ];
 
         for test_input in test_cases {
@@ -545,8 +583,10 @@ mod tests {
             ..input1.clone()
         };
 
-        let journal1 = KernelJournalV1::decode(&kernel_main(&input1.encode().unwrap()).unwrap()).unwrap();
-        let journal2 = KernelJournalV1::decode(&kernel_main(&input2.encode().unwrap()).unwrap()).unwrap();
+        let journal1 =
+            KernelJournalV1::decode(&kernel_main(&input1.encode().unwrap()).unwrap()).unwrap();
+        let journal2 =
+            KernelJournalV1::decode(&kernel_main(&input2.encode().unwrap()).unwrap()).unwrap();
 
         assert_eq!(journal1.execution_nonce, 1);
         assert_eq!(journal2.execution_nonce, 2);
@@ -589,8 +629,11 @@ mod tests {
 
         // Decode should fail with InvalidLength
         let result = KernelInputV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidLength)),
-            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+        assert!(
+            matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -617,8 +660,11 @@ mod tests {
 
         // Decode should fail with InvalidLength
         let result = KernelJournalV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidLength)),
-            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+        assert!(
+            matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -636,8 +682,11 @@ mod tests {
 
         // Decode should fail with InvalidLength
         let result = ActionV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidLength)),
-            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+        assert!(
+            matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -657,8 +706,11 @@ mod tests {
 
         // Decode should fail with InvalidLength
         let result = AgentOutput::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidLength)),
-            "Expected InvalidLength error for trailing bytes, got {:?}", result);
+        assert!(
+            matches!(result, Err(CodecError::InvalidLength)),
+            "Expected InvalidLength error for trailing bytes, got {:?}",
+            result
+        );
     }
 
     // ========================================================================
@@ -845,7 +897,13 @@ mod tests {
         let encoded = hex_to_vec(encoded_hex);
 
         let result = KernelInputV1::decode(&encoded);
-        assert!(matches!(result, Err(CodecError::InvalidVersion { expected: 1, actual: 999 })));
+        assert!(matches!(
+            result,
+            Err(CodecError::InvalidVersion {
+                expected: 1,
+                actual: 999
+            })
+        ));
     }
 
     #[test]
@@ -974,7 +1032,10 @@ mod tests {
     #[test]
     fn test_constraint_violation_reason_codes() {
         // Verify violation reason codes match specification
-        assert_eq!(ConstraintViolationReason::InvalidOutputStructure.code(), 0x01);
+        assert_eq!(
+            ConstraintViolationReason::InvalidOutputStructure.code(),
+            0x01
+        );
         assert_eq!(ConstraintViolationReason::UnknownActionType.code(), 0x02);
         assert_eq!(ConstraintViolationReason::AssetNotWhitelisted.code(), 0x03);
         assert_eq!(ConstraintViolationReason::PositionTooLarge.code(), 0x04);
@@ -1022,9 +1083,12 @@ mod tests {
         assert_eq!(constraints.version, 1);
         assert_eq!(constraints.max_position_notional, u64::MAX);
         assert_eq!(constraints.max_leverage_bps, 100_000); // 10x
-        assert_eq!(constraints.max_drawdown_bps, 10_000);  // 100%
+        assert_eq!(constraints.max_drawdown_bps, 10_000); // 100%
         assert_eq!(constraints.cooldown_seconds, 0);
-        assert_eq!(constraints.max_actions_per_output, MAX_ACTIONS_PER_OUTPUT as u32);
+        assert_eq!(
+            constraints.max_actions_per_output,
+            MAX_ACTIONS_PER_OUTPUT as u32
+        );
         assert_eq!(constraints.allowed_asset_id, [0u8; 32]);
     }
 
@@ -1034,11 +1098,11 @@ mod tests {
 
         // Valid snapshot
         let mut snapshot_bytes = Vec::new();
-        snapshot_bytes.extend_from_slice(&1u32.to_le_bytes());        // version
-        snapshot_bytes.extend_from_slice(&1000u64.to_le_bytes());     // last_execution_ts
-        snapshot_bytes.extend_from_slice(&2000u64.to_le_bytes());     // current_ts
-        snapshot_bytes.extend_from_slice(&100_000u64.to_le_bytes());  // current_equity
-        snapshot_bytes.extend_from_slice(&110_000u64.to_le_bytes());  // peak_equity
+        snapshot_bytes.extend_from_slice(&1u32.to_le_bytes()); // version
+        snapshot_bytes.extend_from_slice(&1000u64.to_le_bytes()); // last_execution_ts
+        snapshot_bytes.extend_from_slice(&2000u64.to_le_bytes()); // current_ts
+        snapshot_bytes.extend_from_slice(&100_000u64.to_le_bytes()); // current_equity
+        snapshot_bytes.extend_from_slice(&110_000u64.to_le_bytes()); // peak_equity
 
         let snapshot = StateSnapshotV1::decode(&snapshot_bytes).unwrap();
         assert_eq!(snapshot.snapshot_version, 1);
@@ -1064,7 +1128,7 @@ mod tests {
         // Wrong version
         let mut bad_version = Vec::new();
         bad_version.extend_from_slice(&2u32.to_le_bytes()); // version = 2 (invalid)
-        bad_version.extend_from_slice(&[0u8; 32]);          // pad to 36 bytes
+        bad_version.extend_from_slice(&[0u8; 32]); // pad to 36 bytes
 
         assert!(StateSnapshotV1::decode(&bad_version).is_none());
     }
@@ -1084,7 +1148,7 @@ mod tests {
         // For empty calldata: value (32) + offset=64 (32) + length=0 (32) = 96 bytes
         let mut payload = Vec::with_capacity(96);
         payload.extend_from_slice(&[0u8; 32]); // value = 0
-        // offset = 64 (big-endian u256)
+                                               // offset = 64 (big-endian u256)
         payload.extend_from_slice(&[0u8; 31]);
         payload.push(64);
         // length = 0 (big-endian u256)
@@ -1120,7 +1184,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::UnknownActionType);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::UnknownActionType
+        );
         assert_eq!(violation.action_index, Some(0));
     }
 
@@ -1144,7 +1211,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::InvalidOutputStructure);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidOutputStructure
+        );
     }
 
     #[test]
@@ -1199,7 +1269,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::InvalidConstraintSet);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidConstraintSet
+        );
         assert_eq!(violation.action_index, None); // Global constraint
     }
 
@@ -1225,7 +1298,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::InvalidConstraintSet);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidConstraintSet
+        );
         assert_eq!(violation.action_index, None); // Global constraint
     }
 
@@ -1469,10 +1545,16 @@ mod tests {
         assert_eq!(AGENT_CODE_HASH.len(), 32);
 
         // Hash should not be all zeros (would indicate a problem)
-        assert_ne!(AGENT_CODE_HASH, [0u8; 32], "Agent hash should not be all zeros");
+        assert_ne!(
+            AGENT_CODE_HASH, [0u8; 32],
+            "Agent hash should not be all zeros"
+        );
 
         // Hash should not be all 0xFF (would indicate a problem)
-        assert_ne!(AGENT_CODE_HASH, [0xffu8; 32], "Agent hash should not be all 0xFF");
+        assert_ne!(
+            AGENT_CODE_HASH, [0xffu8; 32],
+            "Agent hash should not be all 0xFF"
+        );
     }
 
     // ========================================================================
