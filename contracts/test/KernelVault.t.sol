@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {Test, console2} from "forge-std/Test.sol";
-import {KernelVault} from "../src/KernelVault.sol";
-import {KernelExecutionVerifier} from "../src/KernelExecutionVerifier.sol";
-import {KernelOutputParser} from "../src/KernelOutputParser.sol";
-import {MockVerifier} from "./mocks/MockVerifier.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
+import { Test, console2 } from "forge-std/Test.sol";
+import { KernelVault } from "../src/KernelVault.sol";
+import { KernelExecutionVerifier } from "../src/KernelExecutionVerifier.sol";
+import { KernelOutputParser } from "../src/KernelOutputParser.sol";
+import { MockVerifier } from "./mocks/MockVerifier.sol";
+import { MockERC20 } from "./mocks/MockERC20.sol";
 
 /// @title KernelVaultTest
 /// @notice Comprehensive test suite for KernelVault
@@ -147,14 +147,15 @@ contract KernelVaultTest is Test {
     }
 
     /// @notice Build AgentOutput with multiple actions
-    function _buildMultipleTransferActions(address tokenAddr, address[] memory recipients, uint256[] memory amounts)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function _buildMultipleTransferActions(
+        address tokenAddr,
+        address[] memory recipients,
+        uint256[] memory amounts
+    ) internal pure returns (bytes memory) {
         require(recipients.length == amounts.length, "Length mismatch");
 
-        KernelOutputParser.Action[] memory actions = new KernelOutputParser.Action[](recipients.length);
+        KernelOutputParser.Action[] memory actions =
+            new KernelOutputParser.Action[](recipients.length);
 
         for (uint256 i = 0; i < recipients.length; i++) {
             bytes memory payload = abi.encode(tokenAddr, recipients[i], amounts[i]);
@@ -172,7 +173,7 @@ contract KernelVaultTest is Test {
 
     function test_deposit_success() public {
         vm.prank(user);
-        uint256 sharesMinted = vault.deposit(DEPOSIT_AMOUNT);
+        uint256 sharesMinted = vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         assertEq(sharesMinted, DEPOSIT_AMOUNT);
         assertEq(vault.shares(user), DEPOSIT_AMOUNT);
@@ -184,14 +185,14 @@ contract KernelVaultTest is Test {
     function test_deposit_zeroAmount_reverts() public {
         vm.prank(user);
         vm.expectRevert(KernelVault.ZeroDeposit.selector);
-        vault.deposit(0);
+        vault.depositERC20Tokens(0);
     }
 
     function test_deposit_multipleDeposits() public {
         vm.startPrank(user);
 
-        vault.deposit(DEPOSIT_AMOUNT);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         vm.stopPrank();
 
@@ -203,7 +204,7 @@ contract KernelVaultTest is Test {
 
     function test_withdraw_success() public {
         vm.startPrank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         uint256 balanceBefore = token.balanceOf(user);
         uint256 amount = vault.withdraw(DEPOSIT_AMOUNT);
@@ -217,7 +218,7 @@ contract KernelVaultTest is Test {
 
     function test_withdraw_partial() public {
         vm.startPrank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         uint256 withdrawAmount = DEPOSIT_AMOUNT / 2;
         vault.withdraw(withdrawAmount);
@@ -234,10 +235,12 @@ contract KernelVaultTest is Test {
 
     function test_withdraw_insufficientShares_reverts() public {
         vm.startPrank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelVault.InsufficientShares.selector, DEPOSIT_AMOUNT + 1, DEPOSIT_AMOUNT)
+            abi.encodeWithSelector(
+                KernelVault.InsufficientShares.selector, DEPOSIT_AMOUNT + 1, DEPOSIT_AMOUNT
+            )
         );
         vault.withdraw(DEPOSIT_AMOUNT + 1);
         vm.stopPrank();
@@ -248,12 +251,13 @@ contract KernelVaultTest is Test {
     function test_execute_transferAction_success() public {
         // Setup: deposit tokens to vault
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         uint256 transferAmount = 10 ether;
 
         // Build agent output with transfer action
-        bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, transferAmount);
+        bytes memory agentOutputBytes =
+            _buildTransferAction(address(token), recipient, transferAmount);
 
         // Compute action commitment
         bytes32 actionCommitment = sha256(agentOutputBytes);
@@ -281,7 +285,7 @@ contract KernelVaultTest is Test {
     function test_execute_multipleTransfers_success() public {
         // Setup: deposit tokens to vault
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         // Build multiple transfer actions
         address[] memory recipients = new address[](3);
@@ -294,7 +298,8 @@ contract KernelVaultTest is Test {
         amounts[1] = 10 ether;
         amounts[2] = 15 ether;
 
-        bytes memory agentOutputBytes = _buildMultipleTransferActions(address(token), recipients, amounts);
+        bytes memory agentOutputBytes =
+            _buildMultipleTransferActions(address(token), recipients, amounts);
         bytes32 actionCommitment = sha256(agentOutputBytes);
 
         uint64 nonce = 1;
@@ -312,7 +317,7 @@ contract KernelVaultTest is Test {
     function test_execute_replayProtection_reverts() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, 1 ether);
         bytes32 actionCommitment = sha256(agentOutputBytes);
@@ -331,7 +336,7 @@ contract KernelVaultTest is Test {
     function test_execute_nonceGap_withinLimit_succeeds() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         // Execute with nonce 1 (correct - lastNonce is 0)
         bytes memory agentOutputBytes1 = _buildTransferAction(address(token), recipient, 1 ether);
@@ -357,7 +362,7 @@ contract KernelVaultTest is Test {
     function test_execute_nonceGap_exceedsLimit_reverts() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         // Execute with nonce 1
         bytes memory agentOutputBytes1 = _buildTransferAction(address(token), recipient, 1 ether);
@@ -374,14 +379,16 @@ contract KernelVaultTest is Test {
         uint64 nonce2 = 102;
         bytes memory journal2 = _buildJournal(TEST_AGENT_ID, nonce2, actionCommitment2);
 
-        vm.expectRevert(abi.encodeWithSelector(KernelVault.NonceGapTooLarge.selector, nonce1, nonce2, 100));
+        vm.expectRevert(
+            abi.encodeWithSelector(KernelVault.NonceGapTooLarge.selector, nonce1, nonce2, 100)
+        );
         vault.execute(journal2, seal, agentOutputBytes2);
     }
 
     function test_execute_actionCommitmentMismatch_reverts() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, 1 ether);
         bytes32 wrongCommitment = bytes32(uint256(0xBADBAD));
@@ -392,7 +399,9 @@ contract KernelVaultTest is Test {
         bytes32 actualCommitment = sha256(agentOutputBytes);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelVault.ActionCommitmentMismatch.selector, wrongCommitment, actualCommitment)
+            abi.encodeWithSelector(
+                KernelVault.ActionCommitmentMismatch.selector, wrongCommitment, actualCommitment
+            )
         );
         vault.execute(journal, seal, agentOutputBytes);
     }
@@ -400,7 +409,7 @@ contract KernelVaultTest is Test {
     function test_execute_wrongAgentId_reverts() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, 1 ether);
         bytes32 actionCommitment = sha256(agentOutputBytes);
@@ -413,7 +422,9 @@ contract KernelVaultTest is Test {
 
         // This will fail at the verifier level because the agent is not registered
         vm.expectRevert(
-            abi.encodeWithSelector(KernelExecutionVerifier.AgentNotRegistered.selector, wrongAgentId)
+            abi.encodeWithSelector(
+                KernelExecutionVerifier.AgentNotRegistered.selector, wrongAgentId
+            )
         );
         vault.execute(journal, seal, agentOutputBytes);
     }
@@ -421,7 +432,7 @@ contract KernelVaultTest is Test {
     function test_execute_emitsEvent() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, 1 ether);
         bytes32 actionCommitment = sha256(agentOutputBytes);
@@ -438,7 +449,7 @@ contract KernelVaultTest is Test {
     function test_execute_incrementingNonces_success() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         bytes memory seal = hex"deadbeef";
 
@@ -460,7 +471,7 @@ contract KernelVaultTest is Test {
     function test_execute_emptyActions() public {
         // Setup
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         // Build empty action output
         KernelOutputParser.Action[] memory actions = new KernelOutputParser.Action[](0);
@@ -489,7 +500,7 @@ contract KernelVaultTest is Test {
 
         // After deposit
         vm.prank(user);
-        vault.deposit(DEPOSIT_AMOUNT);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
         assertEq(vault.totalAssets(), DEPOSIT_AMOUNT);
         assertEq(vault.totalAssets(), token.balanceOf(address(vault)));
     }
@@ -509,7 +520,7 @@ contract KernelVaultTest is Test {
     function test_deposit_whenEmpty_mintsOneToOne() public {
         // totalShares=0, deposit 100 → 100 shares (1:1)
         vm.prank(user);
-        uint256 sharesMinted = vault.deposit(100 ether);
+        uint256 sharesMinted = vault.depositERC20Tokens(100 ether);
 
         assertEq(sharesMinted, 100 ether);
         assertEq(vault.shares(user), 100 ether);
@@ -520,7 +531,7 @@ contract KernelVaultTest is Test {
     function test_deposit_withYield_mintsPPS() public {
         // User1 deposits 100 assets → gets 100 shares (1:1 when empty)
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         assertEq(vault.shares(user), 100 ether);
         assertEq(vault.totalShares(), 100 ether);
@@ -540,7 +551,7 @@ contract KernelVaultTest is Test {
         token.mint(user2, 100 ether);
         vm.startPrank(user2);
         token.approve(address(vault), type(uint256).max);
-        uint256 sharesMinted = vault.deposit(100 ether);
+        uint256 sharesMinted = vault.depositERC20Tokens(100 ether);
         vm.stopPrank();
 
         assertEq(sharesMinted, 50 ether);
@@ -552,7 +563,7 @@ contract KernelVaultTest is Test {
     function test_withdraw_reflectsPPS() public {
         // User1 deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         // Simulate yield: double the assets
         token.mint(address(vault), 100 ether);
@@ -577,7 +588,7 @@ contract KernelVaultTest is Test {
     function test_withdraw_partialAfterYield() public {
         // User deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         // Simulate yield: double the assets
         token.mint(address(vault), 100 ether);
@@ -599,14 +610,15 @@ contract KernelVaultTest is Test {
     function test_execute_changesPPS_notShares() public {
         // User deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         assertEq(vault.totalShares(), 100 ether);
         assertEq(vault.totalAssets(), 100 ether);
 
         // Execute transfers 40 tokens out of vault
         uint256 transferAmount = 40 ether;
-        bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, transferAmount);
+        bytes memory agentOutputBytes =
+            _buildTransferAction(address(token), recipient, transferAmount);
         bytes32 actionCommitment = sha256(agentOutputBytes);
         uint64 nonce = 1;
         bytes memory journal = _buildJournal(TEST_AGENT_ID, nonce, actionCommitment);
@@ -634,7 +646,7 @@ contract KernelVaultTest is Test {
     function test_convertToShares_afterYield() public {
         // User deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         // Simulate yield: double the assets
         token.mint(address(vault), 100 ether);
@@ -649,7 +661,7 @@ contract KernelVaultTest is Test {
     function test_convertToAssets_afterYield() public {
         // User deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         // Simulate yield: double the assets
         token.mint(address(vault), 100 ether);
@@ -664,7 +676,7 @@ contract KernelVaultTest is Test {
     function test_pps_multipleUsersWithYield() public {
         // User1 deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         // Yield: +50 assets (now 150 assets, 100 shares, PPS = 1.5)
         token.mint(address(vault), 50 ether);
@@ -674,7 +686,7 @@ contract KernelVaultTest is Test {
         token.mint(user2, 150 ether);
         vm.startPrank(user2);
         token.approve(address(vault), type(uint256).max);
-        uint256 user2Shares = vault.deposit(150 ether);
+        uint256 user2Shares = vault.depositERC20Tokens(150 ether);
         vm.stopPrank();
 
         assertEq(user2Shares, 100 ether);
@@ -708,7 +720,7 @@ contract KernelVaultTest is Test {
     function test_execute_assetsIncrease_ppsGoesUp() public {
         // User deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         // Simulate an execute that brings assets INTO the vault
         // We'll do this by minting directly (simulating a profitable trade)
@@ -726,7 +738,7 @@ contract KernelVaultTest is Test {
     function test_rounding_depositorGetsFewer() public {
         // User1 deposits 100 assets → gets 100 shares
         vm.prank(user);
-        vault.deposit(100 ether);
+        vault.depositERC20Tokens(100 ether);
 
         // Add 1 wei of yield
         token.mint(address(vault), 1);
@@ -739,7 +751,7 @@ contract KernelVaultTest is Test {
         token.mint(user2, 100 ether);
         vm.startPrank(user2);
         token.approve(address(vault), type(uint256).max);
-        uint256 sharesMinted = vault.deposit(100 ether);
+        uint256 sharesMinted = vault.depositERC20Tokens(100 ether);
         vm.stopPrank();
 
         // shares should be slightly less than 100 ether due to rounding

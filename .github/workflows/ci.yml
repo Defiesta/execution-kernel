@@ -36,6 +36,29 @@ jobs:
       - name: Test
         run: cargo test --workspace --exclude risc0-methods
 
+  solidity:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Check Solidity formatting
+        run: forge fmt --check
+
+      - name: Build contracts
+        run: forge build
+
+      - name: Run all Solidity tests
+        run: forge test -vv
+
+      - name: Run conformance tests specifically
+        run: forge test --match-path test/KernelOutputParser.Conformance.t.sol -vvv
+
   agent-pack:
     runs-on: ubuntu-latest
     steps:

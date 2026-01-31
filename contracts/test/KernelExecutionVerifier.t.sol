@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {Test, console2} from "forge-std/Test.sol";
-import {KernelExecutionVerifier} from "../src/KernelExecutionVerifier.sol";
-import {MockVerifier, RevertingVerifier} from "./mocks/MockVerifier.sol";
+import { Test, console2 } from "forge-std/Test.sol";
+import { KernelExecutionVerifier } from "../src/KernelExecutionVerifier.sol";
+import { MockVerifier, RevertingVerifier } from "./mocks/MockVerifier.sol";
 
 /// @title KernelExecutionVerifierTest
 /// @notice Comprehensive test suite for KernelExecutionVerifier
@@ -99,7 +99,11 @@ contract KernelExecutionVerifierTest is Test {
     }
 
     /// @notice Build a journal with custom protocol version
-    function _buildJournalWithProtocolVersion(uint32 version) internal pure returns (bytes memory) {
+    function _buildJournalWithProtocolVersion(uint32 version)
+        internal
+        pure
+        returns (bytes memory)
+    {
         bytes memory journal = _buildValidJournal();
         // Set protocol_version (u32 LE at offset 0)
         journal[0] = bytes1(uint8(version & 0xFF));
@@ -200,14 +204,18 @@ contract KernelExecutionVerifierTest is Test {
     function test_parseJournal_executionFailed_statusZero() public {
         bytes memory journal = _buildJournalWithStatus(0x00);
 
-        vm.expectRevert(abi.encodeWithSelector(KernelExecutionVerifier.ExecutionFailed.selector, 0x00));
+        vm.expectRevert(
+            abi.encodeWithSelector(KernelExecutionVerifier.ExecutionFailed.selector, 0x00)
+        );
         verifierContract.parseJournal(journal);
     }
 
     function test_parseJournal_executionFailed_statusTwo() public {
         bytes memory journal = _buildJournalWithStatus(0x02);
 
-        vm.expectRevert(abi.encodeWithSelector(KernelExecutionVerifier.ExecutionFailed.selector, 0x02));
+        vm.expectRevert(
+            abi.encodeWithSelector(KernelExecutionVerifier.ExecutionFailed.selector, 0x02)
+        );
         verifierContract.parseJournal(journal);
     }
 
@@ -302,7 +310,9 @@ contract KernelExecutionVerifierTest is Test {
 
         // Agent not registered - should revert with AgentNotRegistered
         vm.expectRevert(
-            abi.encodeWithSelector(KernelExecutionVerifier.AgentNotRegistered.selector, TEST_AGENT_ID)
+            abi.encodeWithSelector(
+                KernelExecutionVerifier.AgentNotRegistered.selector, TEST_AGENT_ID
+            )
         );
         verifierContract.verifyAndParse(journal, seal);
     }
@@ -384,7 +394,9 @@ contract KernelExecutionVerifierTest is Test {
         bytes memory journal = new bytes(length);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelExecutionVerifier.InvalidJournalLength.selector, length, 209)
+            abi.encodeWithSelector(
+                KernelExecutionVerifier.InvalidJournalLength.selector, length, 209
+            )
         );
         verifierContract.parseJournal(journal);
     }
@@ -395,7 +407,9 @@ contract KernelExecutionVerifierTest is Test {
         bytes memory journal = _buildJournalWithProtocolVersion(version);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelExecutionVerifier.InvalidProtocolVersion.selector, version, 1)
+            abi.encodeWithSelector(
+                KernelExecutionVerifier.InvalidProtocolVersion.selector, version, 1
+            )
         );
         verifierContract.parseJournal(journal);
     }
@@ -406,7 +420,9 @@ contract KernelExecutionVerifierTest is Test {
         bytes memory journal = _buildJournalWithKernelVersion(version);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelExecutionVerifier.InvalidKernelVersion.selector, version, 1)
+            abi.encodeWithSelector(
+                KernelExecutionVerifier.InvalidKernelVersion.selector, version, 1
+            )
         );
         verifierContract.parseJournal(journal);
     }
@@ -416,7 +432,9 @@ contract KernelExecutionVerifierTest is Test {
 
         bytes memory journal = _buildJournalWithStatus(status);
 
-        vm.expectRevert(abi.encodeWithSelector(KernelExecutionVerifier.ExecutionFailed.selector, status));
+        vm.expectRevert(
+            abi.encodeWithSelector(KernelExecutionVerifier.ExecutionFailed.selector, status)
+        );
         verifierContract.parseJournal(journal);
     }
 }
