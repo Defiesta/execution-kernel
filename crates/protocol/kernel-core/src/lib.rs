@@ -23,6 +23,12 @@ pub use codec::*;
 pub use hash::*;
 pub use types::*;
 
+// Re-export action type constants at crate root for convenience
+pub use types::{ACTION_TYPE_CALL, ACTION_TYPE_NO_OP, ACTION_TYPE_TRANSFER_ERC20};
+
+#[cfg(any(test, feature = "testing"))]
+pub use types::ACTION_TYPE_ECHO;
+
 /// Protocol version for wire format compatibility
 pub const PROTOCOL_VERSION: u32 = 1;
 

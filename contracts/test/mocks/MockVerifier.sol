@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import { IRiscZeroVerifier } from "../../src/interfaces/IRiscZeroVerifier.sol";
+import {IRiscZeroVerifier} from "../../src/interfaces/IRiscZeroVerifier.sol";
 
 /// @title MockVerifier
 /// @notice Mock RISC Zero verifier for testing purposes
@@ -33,9 +33,7 @@ contract MockVerifier is IRiscZeroVerifier {
 
     /// @notice Record the last verification call (for use in tests)
     /// @dev This is a non-view version for tests that need to track calls
-    function verifyAndRecord(bytes calldata seal, bytes32 imageId, bytes32 journalDigest)
-        external
-    {
+    function verifyAndRecord(bytes calldata seal, bytes32 imageId, bytes32 journalDigest) external {
         lastSeal = seal;
         lastImageId = imageId;
         lastJournalDigest = journalDigest;

@@ -168,7 +168,10 @@ fn test_call_with_value() {
 
     // Verify encoding is deterministic by re-encoding
     let encoded2 = output.encode().expect("encoding should succeed");
-    assert_eq!(encoded, encoded2, "call_with_value: encoding not deterministic");
+    assert_eq!(
+        encoded, encoded2,
+        "call_with_value: encoding not deterministic"
+    );
 
     // Verify commitment is correct
     let recomputed = compute_action_commitment(&encoded);
@@ -218,7 +221,10 @@ fn test_transfer_erc20() {
 
     // Verify encoding is deterministic
     let encoded2 = output.encode().expect("encoding should succeed");
-    assert_eq!(encoded, encoded2, "transfer_erc20: encoding not deterministic");
+    assert_eq!(
+        encoded, encoded2,
+        "transfer_erc20: encoding not deterministic"
+    );
 }
 
 #[test]
@@ -247,7 +253,10 @@ fn test_no_op() {
     }
 
     // Verify NO_OP has empty payload
-    assert!(output.actions[0].payload.is_empty(), "NO_OP payload must be empty");
+    assert!(
+        output.actions[0].payload.is_empty(),
+        "NO_OP payload must be empty"
+    );
 }
 
 #[test]
@@ -301,23 +310,47 @@ fn test_action_wire_format() {
     let encoded = output.encode().expect("encoding should succeed");
 
     // Check action_count (u32 LE)
-    assert_eq!(&encoded[0..4], &[1, 0, 0, 0], "action_count should be 1 (LE)");
+    assert_eq!(
+        &encoded[0..4],
+        &[1, 0, 0, 0],
+        "action_count should be 1 (LE)"
+    );
 
     // Check action_len (u32 LE)
     // action_len = 4 (type) + 32 (target) + 4 (payload_len) + 4 (payload) = 44
-    assert_eq!(&encoded[4..8], &[44, 0, 0, 0], "action_len should be 44 (LE)");
+    assert_eq!(
+        &encoded[4..8],
+        &[44, 0, 0, 0],
+        "action_len should be 44 (LE)"
+    );
 
     // Check action_type (u32 LE)
-    assert_eq!(&encoded[8..12], &[2, 0, 0, 0], "action_type should be CALL (LE)");
+    assert_eq!(
+        &encoded[8..12],
+        &[2, 0, 0, 0],
+        "action_type should be CALL (LE)"
+    );
 
     // Check target (32 bytes)
-    assert_eq!(&encoded[12..44], &[0xAA; 32], "target should be 0xAA repeated");
+    assert_eq!(
+        &encoded[12..44],
+        &[0xAA; 32],
+        "target should be 0xAA repeated"
+    );
 
     // Check payload_len (u32 LE)
-    assert_eq!(&encoded[44..48], &[4, 0, 0, 0], "payload_len should be 4 (LE)");
+    assert_eq!(
+        &encoded[44..48],
+        &[4, 0, 0, 0],
+        "payload_len should be 4 (LE)"
+    );
 
     // Check payload
-    assert_eq!(&encoded[48..52], &[1, 2, 3, 4], "payload should be [1,2,3,4]");
+    assert_eq!(
+        &encoded[48..52],
+        &[1, 2, 3, 4],
+        "payload should be [1,2,3,4]"
+    );
 }
 
 #[test]
@@ -354,7 +387,11 @@ fn test_call_payload_abi_structure() {
     let payload = create_call_payload(1000, &[0xab, 0xcd, 0xef, 0x12]);
 
     // Total size: 32 (value) + 32 (offset) + 32 (length) + 32 (padded data) = 128
-    assert_eq!(payload.len(), 128, "CALL payload with 4-byte calldata should be 128 bytes");
+    assert_eq!(
+        payload.len(),
+        128,
+        "CALL payload with 4-byte calldata should be 128 bytes"
+    );
 
     // Offset should be 64 (pointing to length field)
     assert_eq!(payload[63], 64, "offset should be 64");
@@ -363,7 +400,11 @@ fn test_call_payload_abi_structure() {
     assert_eq!(payload[95], 4, "length should be 4");
 
     // Calldata should be at bytes 96-99
-    assert_eq!(&payload[96..100], &[0xab, 0xcd, 0xef, 0x12], "calldata should match");
+    assert_eq!(
+        &payload[96..100],
+        &[0xab, 0xcd, 0xef, 0x12],
+        "calldata should match"
+    );
 }
 
 // ============================================================================
@@ -387,7 +428,10 @@ fn test_unknown_action_type_encodes_but_invalid() {
 
     // Encoding should succeed - the codec doesn't validate action types
     let encoded = output.encode();
-    assert!(encoded.is_ok(), "unknown action type should encode without error");
+    assert!(
+        encoded.is_ok(),
+        "unknown action type should encode without error"
+    );
 
     // The encoded bytes are valid, but constraint engine would reject this
     // (tested separately in constraints crate)
@@ -402,17 +446,33 @@ fn test_transfer_erc20_payload_structure() {
 
     let payload = create_transfer_erc20_payload(&token, &to, amount);
 
-    assert_eq!(payload.len(), 96, "TRANSFER_ERC20 payload must be exactly 96 bytes");
+    assert_eq!(
+        payload.len(),
+        96,
+        "TRANSFER_ERC20 payload must be exactly 96 bytes"
+    );
 
     // Verify token address padding
-    assert_eq!(&payload[0..12], &[0u8; 12], "token address must be left-padded");
+    assert_eq!(
+        &payload[0..12],
+        &[0u8; 12],
+        "token address must be left-padded"
+    );
     assert_eq!(&payload[12..32], &token, "token address bytes");
 
     // Verify to address padding
-    assert_eq!(&payload[32..44], &[0u8; 12], "to address must be left-padded");
+    assert_eq!(
+        &payload[32..44],
+        &[0u8; 12],
+        "to address must be left-padded"
+    );
     assert_eq!(&payload[44..64], &to, "to address bytes");
 
     // Verify amount (big-endian in last 16 bytes of the 32-byte slot)
     let expected_amount_bytes = amount.to_be_bytes();
-    assert_eq!(&payload[80..96], &expected_amount_bytes, "amount must be big-endian");
+    assert_eq!(
+        &payload[80..96],
+        &expected_amount_bytes,
+        "amount must be big-endian"
+    );
 }

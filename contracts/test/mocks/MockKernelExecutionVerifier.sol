@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import { IKernelExecutionVerifier } from "../../src/interfaces/IKernelExecutionVerifier.sol";
+import {IKernelExecutionVerifier} from "../../src/interfaces/IKernelExecutionVerifier.sol";
 
 /// @title MockKernelExecutionVerifier
 /// @notice Configurable mock for testing KernelVault execution semantics
@@ -50,9 +50,7 @@ contract MockKernelExecutionVerifier is IKernelExecutionVerifier {
     }
 
     /// @notice Configure just the essential fields for most tests
-    function setEssentials(bytes32 agentId, uint64 executionNonce, bytes32 actionCommitment)
-        external
-    {
+    function setEssentials(bytes32 agentId, uint64 executionNonce, bytes32 actionCommitment) external {
         configuredJournal.agentId = agentId;
         configuredJournal.executionNonce = executionNonce;
         configuredJournal.actionCommitment = actionCommitment;

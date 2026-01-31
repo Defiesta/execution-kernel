@@ -67,7 +67,7 @@ contract MockYieldSource {
         uint256 totalAmount = principal + yieldAmount;
 
         // Transfer to vault
-        (bool success,) = vault.call{ value: totalAmount }("");
+        (bool success,) = vault.call{value: totalAmount}("");
         if (!success) revert TransferFailed();
 
         emit Withdrawn(depositor, principal, yieldAmount);

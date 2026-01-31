@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import { Script, console } from "forge-std/Script.sol";
-import { KernelExecutionVerifier } from "../src/KernelExecutionVerifier.sol";
+import {Script, console} from "forge-std/Script.sol";
+import {KernelExecutionVerifier} from "../src/KernelExecutionVerifier.sol";
 
 contract TestVerifyAndParse is Script {
     // Deployed contract address on Sepolia
@@ -48,9 +48,7 @@ contract TestVerifyAndParse is Script {
         // Call verifyAndParse (view function, no broadcast needed)
         console.log("\nCalling verifyAndParse...");
 
-        try verifier.verifyAndParse(journal, seal) returns (
-            KernelExecutionVerifier.ParsedJournal memory parsed
-        ) {
+        try verifier.verifyAndParse(journal, seal) returns (KernelExecutionVerifier.ParsedJournal memory parsed) {
             console.log("\n=== Verification SUCCESS ===");
             console.log("Agent ID:");
             console.logBytes32(parsed.agentId);
@@ -97,8 +95,6 @@ contract RegisterAgent is Script {
         vm.stopBroadcast();
 
         console.log("\nAgent registered successfully!");
-        console.log(
-            "Now run: forge script script/TestVerifyAndParse.s.sol:TestVerifyAndParse --rpc-url $RPC_URL"
-        );
+        console.log("Now run: forge script script/TestVerifyAndParse.s.sol:TestVerifyAndParse --rpc-url $RPC_URL");
     }
 }

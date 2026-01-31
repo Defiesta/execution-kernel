@@ -1,5 +1,61 @@
 use alloc::vec::Vec;
 
+// ============================================================================
+// Action Type Constants (Protocol v1)
+// ============================================================================
+//
+// These are the ONLY supported action types for on-chain execution via KernelVault.
+// They are aligned with KernelOutputParser.sol constants.
+//
+// IMPORTANT: The numeric values are consensus-critical. Any agent emitting actions
+// with these types will have them executed on-chain by the vault.
+
+/// CALL action type for on-chain execution (0x00000002).
+///
+/// Used by KernelVault.execute() to perform arbitrary contract calls.
+/// Matches KernelOutputParser.sol ACTION_TYPE_CALL.
+///
+/// Payload schema (ABI-encoded):
+/// - `abi.encode(uint256 value, bytes callData)`
+///
+/// On-chain execution: `target.call{value: value}(callData)`
+///
+/// # Target Format
+///
+/// The target is a bytes32 with the EVM address left-padded:
+/// - Upper 12 bytes: 0x00 (must be zero for valid EVM address)
+/// - Lower 20 bytes: EVM address
+pub const ACTION_TYPE_CALL: u32 = 0x00000002;
+
+/// ERC20 transfer action type for on-chain execution (0x00000003).
+///
+/// Used by KernelVault.execute() to transfer ERC20 tokens.
+/// Matches KernelOutputParser.sol ACTION_TYPE_TRANSFER_ERC20.
+///
+/// Payload schema (ABI-encoded):
+/// - `abi.encode(address token, address to, uint256 amount)`
+/// - Size: exactly 96 bytes
+///
+/// On-chain execution: `IERC20(token).transfer(to, amount)`
+pub const ACTION_TYPE_TRANSFER_ERC20: u32 = 0x00000003;
+
+/// No-op action type (0x00000004).
+///
+/// Used for testing or placeholder actions that should be skipped.
+/// Matches KernelOutputParser.sol ACTION_TYPE_NO_OP.
+///
+/// Payload: empty (0 bytes)
+pub const ACTION_TYPE_NO_OP: u32 = 0x00000004;
+
+/// Echo action type for testing (0x00000001).
+///
+/// Used for testing and debugging. Payload is opaque bytes with no schema.
+/// This action type is NOT executable by KernelVault - it will be rejected.
+///
+/// Only use this for unit tests and development.
+#[cfg(any(test, feature = "testing"))]
+pub const ACTION_TYPE_ECHO: u32 = 0x00000001;
+
 /// Kernel input structure for P0.1 protocol.
 ///
 /// Contains all consensus-critical fields needed to bind the proof to:
@@ -309,5 +365,82 @@ impl From<ConstraintViolation> for ConstraintError {
 impl From<CodecError> for KernelError {
     fn from(e: CodecError) -> Self {
         KernelError::Codec(e)
+    }
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ========================================================================
+    // Action Type Invariant Tests
+    // ========================================================================
+
+    /// Verify action type constants match Solidity contract values.
+    ///
+    /// IMPORTANT: These values are consensus-critical and must match
+    /// KernelOutputParser.sol exactly. Changing them will break on-chain
+    /// execution compatibility.
+    #[test]
+    fn test_action_types_match_solidity_contract() {
+        // Values from KernelOutputParser.sol
+        assert_eq!(ACTION_TYPE_CALL, 0x00000002, "CALL must be 0x02");
+        assert_eq!(
+            ACTION_TYPE_TRANSFER_ERC20, 0x00000003,
+            "TRANSFER_ERC20 must be 0x03"
+        );
+        assert_eq!(ACTION_TYPE_NO_OP, 0x00000004, "NO_OP must be 0x04");
+    }
+
+    /// Verify ECHO is available in test mode.
+    #[test]
+    fn test_echo_action_type_in_test_mode() {
+        assert_eq!(ACTION_TYPE_ECHO, 0x00000001, "ECHO must be 0x01");
+    }
+
+    /// Verify action types are distinct.
+    #[test]
+    fn test_action_types_are_distinct() {
+        let types = [
+            ACTION_TYPE_ECHO,
+            ACTION_TYPE_CALL,
+            ACTION_TYPE_TRANSFER_ERC20,
+            ACTION_TYPE_NO_OP,
+        ];
+
+        // Verify all pairs are distinct
+        for i in 0..types.len() {
+            for j in (i + 1)..types.len() {
+                assert_ne!(
+                    types[i], types[j],
+                    "Action types at index {} and {} must be distinct",
+                    i, j
+                );
+            }
+        }
+    }
+
+    /// Verify action types are in expected order.
+    ///
+    /// This isn't strictly required by the protocol, but helps ensure
+    /// we don't accidentally shuffle values around.
+    #[test]
+    fn test_action_types_ordering() {
+        assert!(ACTION_TYPE_ECHO < ACTION_TYPE_CALL);
+        assert!(ACTION_TYPE_CALL < ACTION_TYPE_TRANSFER_ERC20);
+        assert!(ACTION_TYPE_TRANSFER_ERC20 < ACTION_TYPE_NO_OP);
+    }
+
+    /// Verify action types fit in u32 range.
+    #[test]
+    fn test_action_types_are_u32() {
+        let _: u32 = ACTION_TYPE_ECHO;
+        let _: u32 = ACTION_TYPE_CALL;
+        let _: u32 = ACTION_TYPE_TRANSFER_ERC20;
+        let _: u32 = ACTION_TYPE_NO_OP;
     }
 }

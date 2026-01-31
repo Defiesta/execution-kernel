@@ -120,37 +120,17 @@ pub mod prelude {
         ActionV1, AgentOutput, MAX_ACTIONS_PER_OUTPUT, MAX_ACTION_PAYLOAD_BYTES,
     };
 
-    // Action type constants
-    pub use crate::types::{
-        ACTION_TYPE_ADJUST_POSITION,
-        // On-chain execution action types
-        ACTION_TYPE_CALL,
-        ACTION_TYPE_CLOSE_POSITION,
-        ACTION_TYPE_ECHO,
-        ACTION_TYPE_NO_OP,
-        ACTION_TYPE_OPEN_POSITION,
-        ACTION_TYPE_SWAP,
-        ACTION_TYPE_TRANSFER_ERC20,
-    };
+    // Action type constants (re-exported from kernel-core)
+    pub use crate::types::{ACTION_TYPE_CALL, ACTION_TYPE_NO_OP, ACTION_TYPE_TRANSFER_ERC20};
+
+    #[cfg(any(test, feature = "testing"))]
+    pub use crate::types::ACTION_TYPE_ECHO;
 
     // Action constructors
-    pub use crate::types::{
-        address_to_bytes32,
-        adjust_position_action,
-        // On-chain execution helpers
-        call_action,
-        close_position_action,
-        echo_action,
-        open_position_action,
-        swap_action,
-    };
+    pub use crate::types::{address_to_bytes32, call_action, no_op_action, transfer_erc20_action};
 
-    // Payload decode helpers + types
-    pub use crate::types::{
-        decode_adjust_position_payload, decode_close_position_payload,
-        decode_open_position_payload, decode_swap_payload, DecodedAdjustPosition,
-        DecodedOpenPosition, DecodedSwap,
-    };
+    #[cfg(any(test, feature = "testing"))]
+    pub use crate::types::echo_action;
 
     // Math helpers (canonical primitives)
     pub use crate::math::{

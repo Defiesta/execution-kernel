@@ -1,21 +1,20 @@
-//! Reference Echo Agent Implementation
+//! Reference Agent Implementation
 //!
 //! This is the canonical reference agent that demonstrates proper use of
-//! the kernel-sdk. It implements the simplest possible agent behavior:
-//! echoing the opaque inputs back as an Echo action.
+//! the kernel-sdk. It shows how to create agents that produce on-chain
+//! executable actions.
 //!
 //! # Usage
 //!
 //! This example is designed to be compiled as part of a zkVM guest binary.
 //! In a real deployment, this would be the main entry point of the guest.
 //!
-//! # Behavior
+//! # Production Actions
 //!
-//! 1. Receives `AgentContext` and `opaque_inputs` from the kernel
-//! 2. Creates a single `Echo` action
-//! 3. Uses `agent_id` as the target
-//! 4. Uses `opaque_inputs` as the payload (truncated to max size)
-//! 5. Returns `AgentOutput` with the single action
+//! For on-chain execution via KernelVault, agents must produce one of:
+//! - `ACTION_TYPE_CALL` (0x02) - Generic contract call
+//! - `ACTION_TYPE_TRANSFER_ERC20` (0x03) - ERC20 token transfer
+//! - `ACTION_TYPE_NO_OP` (0x04) - No operation (skipped)
 //!
 //! # Properties
 //!
@@ -65,24 +64,11 @@ pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> Age
         return AgentOutput { actions: vec![] };
     }
 
-    // Truncate payload to max size if needed
-    let max_payload = kernel_sdk::types::MAX_ACTION_PAYLOAD_BYTES;
-    let payload_len = if opaque_inputs.len() > max_payload {
-        max_payload
-    } else {
-        opaque_inputs.len()
-    };
-
-    // Create the echo action
-    let action = ActionV1 {
-        action_type: ACTION_TYPE_ECHO,
-        target: ctx.agent_id,
-        payload: opaque_inputs[..payload_len].to_vec(),
-    };
-
-    // Return the output
+    // For production, create a NO_OP action that echoes the input length
+    // This is a simple demonstration - real agents would parse inputs and
+    // create CALL or TRANSFER_ERC20 actions for actual on-chain execution
     AgentOutput {
-        actions: vec![action],
+        actions: vec![no_op_action()],
     }
 }
 
@@ -98,64 +84,55 @@ fn noop_agent(_ctx: &AgentContext, _opaque_inputs: &[u8]) -> AgentOutput {
     AgentOutput { actions: vec![] }
 }
 
-/// Multi-action agent that produces one echo per input byte.
+/// Production agent that creates CALL actions for on-chain execution.
 ///
-/// Demonstrates bounded iteration and multiple action production.
+/// Demonstrates use of the SDK's `call_action` constructor for
+/// creating actions that will be executed by KernelVault.
 #[allow(dead_code)]
-fn multi_echo_agent(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
-    // Limit to MAX_ACTIONS_PER_OUTPUT actions
-    let action_count = if opaque_inputs.len() > MAX_ACTIONS_PER_OUTPUT {
-        MAX_ACTIONS_PER_OUTPUT
-    } else {
-        opaque_inputs.len()
-    };
-
-    let actions: Vec<ActionV1> = opaque_inputs[..action_count]
-        .iter()
-        .map(|&byte| ActionV1 {
-            action_type: ACTION_TYPE_ECHO,
-            target: ctx.agent_id,
-            payload: vec![byte],
-        })
-        .collect();
-
-    AgentOutput { actions }
-}
-
-/// Trading agent that opens a position based on input parameters.
-///
-/// Demonstrates use of the SDK's action constructors.
-#[allow(dead_code)]
-fn trading_agent(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
-    // Need at least 41 bytes: asset_id (32) + notional (8) + direction (1)
-    if opaque_inputs.len() < 41 {
+fn call_agent(_ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
+    // Need at least 28 bytes: target_addr (20) + value (8)
+    if opaque_inputs.len() < 28 {
         return AgentOutput { actions: vec![] };
     }
 
     // Parse inputs using SDK byte helpers
-    let asset_id = match kernel_sdk::bytes::read_bytes32(opaque_inputs, 0) {
-        Some(id) => id,
+    let target_addr: [u8; 20] = match opaque_inputs[0..20].try_into() {
+        Ok(addr) => addr,
+        Err(_) => return AgentOutput { actions: vec![] },
+    };
+
+    let value = match kernel_sdk::bytes::read_u64_le(opaque_inputs, 20) {
+        Some(v) => v as u128,
         None => return AgentOutput { actions: vec![] },
     };
 
-    let notional = match kernel_sdk::bytes::read_u64_le(opaque_inputs, 32) {
-        Some(n) => n,
-        None => return AgentOutput { actions: vec![] },
-    };
+    // Remaining bytes are calldata
+    let calldata = &opaque_inputs[28..];
 
-    let direction = match kernel_sdk::bytes::read_u8(opaque_inputs, 40) {
-        Some(d) => d,
-        None => return AgentOutput { actions: vec![] },
-    };
+    // Create CALL action using SDK helper
+    let target = address_to_bytes32(&target_addr);
+    let action = call_action(target, value, calldata);
 
-    // Create open position action using SDK helper
-    let action = open_position_action(
-        ctx.agent_id, // target: self
-        asset_id,
-        notional,
-        10_000, // 1x leverage
-        direction,
-    );
+    AgentOutput {
+        actions: vec![action],
+    }
+}
+
+/// Production agent that creates TRANSFER_ERC20 actions.
+///
+/// Demonstrates use of the SDK's `transfer_erc20_action` constructor.
+#[allow(dead_code)]
+fn transfer_agent(_ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
+    // Need exactly 48 bytes: token (20) + to (20) + amount (8)
+    if opaque_inputs.len() < 48 {
+        return AgentOutput { actions: vec![] };
+    }
+
+    let token: [u8; 20] = opaque_inputs[0..20].try_into().unwrap();
+    let to: [u8; 20] = opaque_inputs[20..40].try_into().unwrap();
+    let amount = u64::from_le_bytes(opaque_inputs[40..48].try_into().unwrap()) as u128;
+
+    let action = transfer_erc20_action(&token, &to, amount);
 
     AgentOutput {
         actions: vec![action],
@@ -213,27 +190,14 @@ mod tests {
     }
 
     #[test]
-    fn test_echo_agent_basic() {
+    fn test_agent_main_produces_noop() {
         let ctx = make_test_context([0x42u8; 32], [0xaau8; 32], [0xbbu8; 32], [0xccu8; 32]);
         let inputs = [1u8, 2, 3, 4, 5];
 
         let output = agent_main(&ctx, &inputs);
 
         assert_eq!(output.actions.len(), 1);
-        assert_eq!(output.actions[0].action_type, ACTION_TYPE_ECHO);
-        assert_eq!(output.actions[0].target, [0x42u8; 32]);
-        assert_eq!(output.actions[0].payload, vec![1, 2, 3, 4, 5]);
-    }
-
-    #[test]
-    fn test_echo_agent_empty_input() {
-        let ctx = make_test_context([0x42u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
-        let inputs: [u8; 0] = [];
-
-        let output = agent_main(&ctx, &inputs);
-
-        assert_eq!(output.actions.len(), 1);
-        assert_eq!(output.actions[0].payload.len(), 0);
+        assert_eq!(output.actions[0].action_type, ACTION_TYPE_NO_OP);
     }
 
     #[test]
@@ -246,41 +210,43 @@ mod tests {
     }
 
     #[test]
-    fn test_multi_echo_agent() {
-        let ctx = make_test_context([0x42u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
-        let inputs = [1u8, 2, 3, 4, 5];
-
-        let output = multi_echo_agent(&ctx, &inputs);
-
-        assert_eq!(output.actions.len(), 5);
-        for (i, action) in output.actions.iter().enumerate() {
-            assert_eq!(action.action_type, ACTION_TYPE_ECHO);
-            assert_eq!(action.payload, vec![(i + 1) as u8]);
-        }
-    }
-
-    #[test]
-    fn test_trading_agent_valid_input() {
+    fn test_call_agent_valid_input() {
         let ctx = make_test_context([0x11u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
 
-        // Build input: asset_id (32) + notional (8) + direction (1)
-        let mut inputs = Vec::with_capacity(41);
-        inputs.extend_from_slice(&[0x42u8; 32]); // asset_id
-        inputs.extend_from_slice(&1000u64.to_le_bytes()); // notional
-        inputs.push(0); // direction = long
+        // Build input: target_addr (20) + value (8) + calldata
+        let mut inputs = Vec::with_capacity(32);
+        inputs.extend_from_slice(&[0x42u8; 20]); // target address
+        inputs.extend_from_slice(&1000u64.to_le_bytes()); // value
+        inputs.extend_from_slice(&[0xab, 0xcd, 0xef, 0x12]); // calldata
 
-        let output = trading_agent(&ctx, &inputs);
+        let output = call_agent(&ctx, &inputs);
 
         assert_eq!(output.actions.len(), 1);
-        assert_eq!(output.actions[0].action_type, ACTION_TYPE_OPEN_POSITION);
+        assert_eq!(output.actions[0].action_type, ACTION_TYPE_CALL);
     }
 
     #[test]
-    fn test_trading_agent_invalid_input() {
+    fn test_call_agent_invalid_input() {
         let ctx = make_test_context([0x11u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
         let inputs = [1u8, 2, 3]; // Too short
 
-        let output = trading_agent(&ctx, &inputs);
+        let output = call_agent(&ctx, &inputs);
         assert_eq!(output.actions.len(), 0); // Graceful degradation
+    }
+
+    #[test]
+    fn test_transfer_agent_valid_input() {
+        let ctx = make_test_context([0x11u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
+
+        // Build input: token (20) + to (20) + amount (8)
+        let mut inputs = Vec::with_capacity(48);
+        inputs.extend_from_slice(&[0x11u8; 20]); // token
+        inputs.extend_from_slice(&[0x22u8; 20]); // to
+        inputs.extend_from_slice(&1_000_000u64.to_le_bytes()); // amount
+
+        let output = transfer_agent(&ctx, &inputs);
+
+        assert_eq!(output.actions.len(), 1);
+        assert_eq!(output.actions[0].action_type, ACTION_TYPE_TRANSFER_ERC20);
     }
 }
