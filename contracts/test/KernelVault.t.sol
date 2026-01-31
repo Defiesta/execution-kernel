@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {Test, console2} from "forge-std/Test.sol";
-import {KernelVault} from "../src/KernelVault.sol";
-import {KernelExecutionVerifier} from "../src/KernelExecutionVerifier.sol";
-import {KernelOutputParser} from "../src/KernelOutputParser.sol";
-import {MockVerifier} from "./mocks/MockVerifier.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
+import { Test, console2 } from "forge-std/Test.sol";
+import { KernelVault } from "../src/KernelVault.sol";
+import { KernelExecutionVerifier } from "../src/KernelExecutionVerifier.sol";
+import { KernelOutputParser } from "../src/KernelOutputParser.sol";
+import { MockVerifier } from "./mocks/MockVerifier.sol";
+import { MockERC20 } from "./mocks/MockERC20.sol";
 
 /// @title KernelVaultTest
 /// @notice Comprehensive test suite for KernelVault
@@ -127,7 +127,11 @@ contract KernelVaultTest is Test {
     }
 
     /// @notice Build AgentOutput with a single TRANSFER_ERC20 action
-    function _buildTransferAction(address tokenAddr, address to, uint256 amount) internal pure returns (bytes memory) {
+    function _buildTransferAction(address tokenAddr, address to, uint256 amount)
+        internal
+        pure
+        returns (bytes memory)
+    {
         // Create payload: abi.encode(token, to, amount)
         bytes memory payload = abi.encode(tokenAddr, to, amount);
 
@@ -143,14 +147,15 @@ contract KernelVaultTest is Test {
     }
 
     /// @notice Build AgentOutput with multiple actions
-    function _buildMultipleTransferActions(address tokenAddr, address[] memory recipients, uint256[] memory amounts)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function _buildMultipleTransferActions(
+        address tokenAddr,
+        address[] memory recipients,
+        uint256[] memory amounts
+    ) internal pure returns (bytes memory) {
         require(recipients.length == amounts.length, "Length mismatch");
 
-        KernelOutputParser.Action[] memory actions = new KernelOutputParser.Action[](recipients.length);
+        KernelOutputParser.Action[] memory actions =
+            new KernelOutputParser.Action[](recipients.length);
 
         for (uint256 i = 0; i < recipients.length; i++) {
             bytes memory payload = abi.encode(tokenAddr, recipients[i], amounts[i]);
@@ -233,7 +238,9 @@ contract KernelVaultTest is Test {
         vault.depositERC20Tokens(DEPOSIT_AMOUNT);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelVault.InsufficientShares.selector, DEPOSIT_AMOUNT + 1, DEPOSIT_AMOUNT)
+            abi.encodeWithSelector(
+                KernelVault.InsufficientShares.selector, DEPOSIT_AMOUNT + 1, DEPOSIT_AMOUNT
+            )
         );
         vault.withdraw(DEPOSIT_AMOUNT + 1);
         vm.stopPrank();
@@ -249,7 +256,8 @@ contract KernelVaultTest is Test {
         uint256 transferAmount = 10 ether;
 
         // Build agent output with transfer action
-        bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, transferAmount);
+        bytes memory agentOutputBytes =
+            _buildTransferAction(address(token), recipient, transferAmount);
 
         // Compute action commitment
         bytes32 actionCommitment = sha256(agentOutputBytes);
@@ -290,7 +298,8 @@ contract KernelVaultTest is Test {
         amounts[1] = 10 ether;
         amounts[2] = 15 ether;
 
-        bytes memory agentOutputBytes = _buildMultipleTransferActions(address(token), recipients, amounts);
+        bytes memory agentOutputBytes =
+            _buildMultipleTransferActions(address(token), recipients, amounts);
         bytes32 actionCommitment = sha256(agentOutputBytes);
 
         uint64 nonce = 1;
@@ -370,7 +379,9 @@ contract KernelVaultTest is Test {
         uint64 nonce2 = 102;
         bytes memory journal2 = _buildJournal(TEST_AGENT_ID, nonce2, actionCommitment2);
 
-        vm.expectRevert(abi.encodeWithSelector(KernelVault.NonceGapTooLarge.selector, nonce1, nonce2, 100));
+        vm.expectRevert(
+            abi.encodeWithSelector(KernelVault.NonceGapTooLarge.selector, nonce1, nonce2, 100)
+        );
         vault.execute(journal2, seal, agentOutputBytes2);
     }
 
@@ -388,7 +399,9 @@ contract KernelVaultTest is Test {
         bytes32 actualCommitment = sha256(agentOutputBytes);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelVault.ActionCommitmentMismatch.selector, wrongCommitment, actualCommitment)
+            abi.encodeWithSelector(
+                KernelVault.ActionCommitmentMismatch.selector, wrongCommitment, actualCommitment
+            )
         );
         vault.execute(journal, seal, agentOutputBytes);
     }
@@ -408,7 +421,11 @@ contract KernelVaultTest is Test {
         bytes memory seal = hex"deadbeef";
 
         // This will fail at the verifier level because the agent is not registered
-        vm.expectRevert(abi.encodeWithSelector(KernelExecutionVerifier.AgentNotRegistered.selector, wrongAgentId));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                KernelExecutionVerifier.AgentNotRegistered.selector, wrongAgentId
+            )
+        );
         vault.execute(journal, seal, agentOutputBytes);
     }
 
@@ -600,7 +617,8 @@ contract KernelVaultTest is Test {
 
         // Execute transfers 40 tokens out of vault
         uint256 transferAmount = 40 ether;
-        bytes memory agentOutputBytes = _buildTransferAction(address(token), recipient, transferAmount);
+        bytes memory agentOutputBytes =
+            _buildTransferAction(address(token), recipient, transferAmount);
         bytes32 actionCommitment = sha256(agentOutputBytes);
         uint64 nonce = 1;
         bytes memory journal = _buildJournal(TEST_AGENT_ID, nonce, actionCommitment);

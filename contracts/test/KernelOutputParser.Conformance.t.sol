@@ -21,12 +21,20 @@ contract KernelOutputParserConformanceTest is Test {
     // ============================================================================
 
     /// @notice Parse actions from memory bytes by forwarding through external call
-    function parseActions(bytes calldata data) external pure returns (KernelOutputParser.Action[] memory) {
+    function parseActions(bytes calldata data)
+        external
+        pure
+        returns (KernelOutputParser.Action[] memory)
+    {
         return KernelOutputParser.parseActions(data);
     }
 
     /// @notice Internal helper that calls parseActions via this contract
-    function _parseActions(bytes memory data) internal view returns (KernelOutputParser.Action[] memory) {
+    function _parseActions(bytes memory data)
+        internal
+        view
+        returns (KernelOutputParser.Action[] memory)
+    {
         return this.parseActions(data);
     }
 
@@ -47,7 +55,8 @@ contract KernelOutputParserConformanceTest is Test {
         assertEq(actions[0].actionType, ACTION_TYPE_CALL, "action type should be CALL");
 
         // Verify target (left-padded address)
-        bytes32 expectedTarget = bytes32(hex"0000000000000000000000001111111111111111111111111111111111111111");
+        bytes32 expectedTarget =
+            bytes32(hex"0000000000000000000000001111111111111111111111111111111111111111");
         assertEq(actions[0].target, expectedTarget, "target should match");
 
         // Verify payload structure (ABI-encoded value + calldata)
@@ -64,13 +73,19 @@ contract KernelOutputParserConformanceTest is Test {
 
         // Verify calldata bytes
         bytes4 selector = bytes4(
-            bytes.concat(actions[0].payload[96], actions[0].payload[97], actions[0].payload[98], actions[0].payload[99])
+            bytes.concat(
+                actions[0].payload[96],
+                actions[0].payload[97],
+                actions[0].payload[98],
+                actions[0].payload[99]
+            )
         );
         assertEq(selector, bytes4(hex"abcdef12"), "selector should match");
 
         // Verify commitment
         bytes32 commitment = sha256(encoded);
-        bytes32 expectedCommitment = hex"e4698fa954ff344739ef6cf0659fd646f64bbc2e553b32d80314fe460cd066b4";
+        bytes32 expectedCommitment =
+            hex"e4698fa954ff344739ef6cf0659fd646f64bbc2e553b32d80314fe460cd066b4";
         assertEq(commitment, expectedCommitment, "commitment should match Rust");
     }
 
@@ -86,7 +101,8 @@ contract KernelOutputParserConformanceTest is Test {
         assertEq(actions[0].actionType, ACTION_TYPE_CALL, "action type should be CALL");
 
         // Verify target
-        bytes32 expectedTarget = bytes32(hex"0000000000000000000000002222222222222222222222222222222222222222");
+        bytes32 expectedTarget =
+            bytes32(hex"0000000000000000000000002222222222222222222222222222222222222222");
         assertEq(actions[0].target, expectedTarget, "target should match");
 
         // Decode ABI payload
@@ -100,7 +116,8 @@ contract KernelOutputParserConformanceTest is Test {
 
         // Verify commitment
         bytes32 commitment = sha256(encoded);
-        bytes32 expectedCommitment = hex"1cec43ea593376d3c8e6896b3a2ed9e2193f19fe8c77ffdac767baec4119077b";
+        bytes32 expectedCommitment =
+            hex"1cec43ea593376d3c8e6896b3a2ed9e2193f19fe8c77ffdac767baec4119077b";
         assertEq(commitment, expectedCommitment, "commitment should match Rust");
     }
 
@@ -113,7 +130,11 @@ contract KernelOutputParserConformanceTest is Test {
         KernelOutputParser.Action[] memory actions = _parseActions(encoded);
 
         assertEq(actions.length, 1, "should have 1 action");
-        assertEq(actions[0].actionType, ACTION_TYPE_TRANSFER_ERC20, "action type should be TRANSFER_ERC20");
+        assertEq(
+            actions[0].actionType,
+            ACTION_TYPE_TRANSFER_ERC20,
+            "action type should be TRANSFER_ERC20"
+        );
 
         // Target is unused for ERC20 transfers
         assertEq(actions[0].target, bytes32(0), "target should be zero");
@@ -132,7 +153,8 @@ contract KernelOutputParserConformanceTest is Test {
 
         // Verify commitment
         bytes32 commitment = sha256(encoded);
-        bytes32 expectedCommitment = hex"31c0eeb34dce3bac1ceade09476fe68ae790cfe4054491f4573a2b06c7d5ffcf";
+        bytes32 expectedCommitment =
+            hex"31c0eeb34dce3bac1ceade09476fe68ae790cfe4054491f4573a2b06c7d5ffcf";
         assertEq(commitment, expectedCommitment, "commitment should match Rust");
     }
 
@@ -151,7 +173,8 @@ contract KernelOutputParserConformanceTest is Test {
 
         // Verify commitment
         bytes32 commitment = sha256(encoded);
-        bytes32 expectedCommitment = hex"3f17ba8eb8ba7cd69ea9e7571eafa53ea8373b5e9d005ddef9847fa3256607c2";
+        bytes32 expectedCommitment =
+            hex"3f17ba8eb8ba7cd69ea9e7571eafa53ea8373b5e9d005ddef9847fa3256607c2";
         assertEq(commitment, expectedCommitment, "commitment should match Rust");
     }
 
@@ -166,7 +189,8 @@ contract KernelOutputParserConformanceTest is Test {
 
         // Verify commitment (used for constraint failures)
         bytes32 commitment = sha256(encoded);
-        bytes32 expectedCommitment = hex"df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119";
+        bytes32 expectedCommitment =
+            hex"df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119";
         assertEq(commitment, expectedCommitment, "empty output commitment should match");
     }
 
@@ -250,7 +274,11 @@ contract KernelOutputParserConformanceTest is Test {
     }
 
     /// @notice Read a left-padded address from bytes at offset
-    function _readAddressPadded(bytes memory data, uint256 offset) internal pure returns (address) {
+    function _readAddressPadded(bytes memory data, uint256 offset)
+        internal
+        pure
+        returns (address)
+    {
         require(data.length >= offset + 32, "insufficient data");
         // Address is in lower 20 bytes of the 32-byte slot
         uint256 raw = _readUint256BE(data, offset);

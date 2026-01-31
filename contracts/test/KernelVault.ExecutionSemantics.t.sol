@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.20;
 
-import {Test, console2} from "forge-std/Test.sol";
-import {KernelVault} from "../src/KernelVault.sol";
-import {KernelOutputParser} from "../src/KernelOutputParser.sol";
-import {MockKernelExecutionVerifier} from "./mocks/MockKernelExecutionVerifier.sol";
-import {MockCallTarget} from "./mocks/MockCallTarget.sol";
-import {MockERC20} from "./mocks/MockERC20.sol";
+import { Test, console2 } from "forge-std/Test.sol";
+import { KernelVault } from "../src/KernelVault.sol";
+import { KernelOutputParser } from "../src/KernelOutputParser.sol";
+import { MockKernelExecutionVerifier } from "./mocks/MockKernelExecutionVerifier.sol";
+import { MockCallTarget } from "./mocks/MockCallTarget.sol";
+import { MockERC20 } from "./mocks/MockERC20.sol";
 
 /// @title KernelVault Execution Semantics Tests
 /// @notice End-to-end tests for action execution with mocked verifier
@@ -70,7 +70,11 @@ contract KernelVaultExecutionSemanticsTest is Test {
     // ============ Helper Functions ============
 
     /// @notice Build AgentOutput with a single TRANSFER_ERC20 action
-    function _buildTransferAction(address tokenAddr, address to, uint256 amount) internal pure returns (bytes memory) {
+    function _buildTransferAction(address tokenAddr, address to, uint256 amount)
+        internal
+        pure
+        returns (bytes memory)
+    {
         bytes memory payload = abi.encode(tokenAddr, to, amount);
 
         KernelOutputParser.Action[] memory actions = new KernelOutputParser.Action[](1);
@@ -114,7 +118,11 @@ contract KernelVaultExecutionSemanticsTest is Test {
     }
 
     /// @notice Build AgentOutput with multiple actions
-    function _buildMultipleActions(KernelOutputParser.Action[] memory actions) internal pure returns (bytes memory) {
+    function _buildMultipleActions(KernelOutputParser.Action[] memory actions)
+        internal
+        pure
+        returns (bytes memory)
+    {
         return KernelOutputParser.encodeAgentOutput(actions);
     }
 
@@ -137,8 +145,14 @@ contract KernelVaultExecutionSemanticsTest is Test {
         bytes memory agentOutput = _buildTransferAction(address(token), recipient, transferAmount);
         _executeWithCommitment(agentOutput, 1);
 
-        assertEq(token.balanceOf(address(vault)), vaultBefore - transferAmount, "vault balance mismatch");
-        assertEq(token.balanceOf(recipient), recipientBefore + transferAmount, "recipient balance mismatch");
+        assertEq(
+            token.balanceOf(address(vault)), vaultBefore - transferAmount, "vault balance mismatch"
+        );
+        assertEq(
+            token.balanceOf(recipient),
+            recipientBefore + transferAmount,
+            "recipient balance mismatch"
+        );
     }
 
     /// @notice Test: TRANSFER_ERC20 with exact vault balance (drain)
@@ -207,7 +221,9 @@ contract KernelVaultExecutionSemanticsTest is Test {
         bytes memory agentOutput = _buildCallAction(address(callTarget), ethValue, callData);
         _executeWithCommitment(agentOutput, 1);
 
-        assertEq(address(callTarget).balance, targetBefore + ethValue, "target ETH balance mismatch");
+        assertEq(
+            address(callTarget).balance, targetBefore + ethValue, "target ETH balance mismatch"
+        );
         assertEq(address(vault).balance, vaultBefore - ethValue, "vault ETH balance mismatch");
         assertEq(callTarget.lastValue(), ethValue, "lastValue should match");
     }
@@ -264,7 +280,9 @@ contract KernelVaultExecutionSemanticsTest is Test {
         bytes memory agentOutput = _buildNoOpAction();
         _executeWithCommitment(agentOutput, 1);
 
-        assertEq(token.balanceOf(address(vault)), vaultTokenBefore, "token balance should not change");
+        assertEq(
+            token.balanceOf(address(vault)), vaultTokenBefore, "token balance should not change"
+        );
         assertEq(address(vault).balance, vaultETHBefore, "ETH balance should not change");
     }
 
@@ -326,7 +344,9 @@ contract KernelVaultExecutionSemanticsTest is Test {
 
         // Verify first action was rolled back
         assertEq(token.balanceOf(address(vault)), vaultBefore, "vault balance should be unchanged");
-        assertEq(token.balanceOf(recipient), recipientBefore, "recipient balance should be unchanged");
+        assertEq(
+            token.balanceOf(recipient), recipientBefore, "recipient balance should be unchanged"
+        );
     }
 
     /// @notice Test: Multiple successful actions all execute
@@ -374,7 +394,9 @@ contract KernelVaultExecutionSemanticsTest is Test {
         bytes32 actualCommitment = sha256(agentOutput);
 
         vm.expectRevert(
-            abi.encodeWithSelector(KernelVault.ActionCommitmentMismatch.selector, wrongCommitment, actualCommitment)
+            abi.encodeWithSelector(
+                KernelVault.ActionCommitmentMismatch.selector, wrongCommitment, actualCommitment
+            )
         );
         vault.execute(DUMMY_JOURNAL, DUMMY_SEAL, agentOutput);
     }
@@ -426,7 +448,9 @@ contract KernelVaultExecutionSemanticsTest is Test {
         mockVerifier.setActionCommitment(commitment);
         mockVerifier.setExecutionNonce(tooFarNonce);
 
-        vm.expectRevert(abi.encodeWithSelector(KernelVault.NonceGapTooLarge.selector, 1, tooFarNonce, 100));
+        vm.expectRevert(
+            abi.encodeWithSelector(KernelVault.NonceGapTooLarge.selector, 1, tooFarNonce, 100)
+        );
         vault.execute(DUMMY_JOURNAL, DUMMY_SEAL, agentOutput);
     }
 
@@ -470,7 +494,9 @@ contract KernelVaultExecutionSemanticsTest is Test {
         mockVerifier.setActionCommitment(commitment);
         mockVerifier.setExecutionNonce(1);
 
-        vm.expectRevert(abi.encodeWithSelector(KernelVault.AgentIdMismatch.selector, AGENT_ID, wrongAgentId));
+        vm.expectRevert(
+            abi.encodeWithSelector(KernelVault.AgentIdMismatch.selector, AGENT_ID, wrongAgentId)
+        );
         vault.execute(DUMMY_JOURNAL, DUMMY_SEAL, agentOutput);
     }
 
@@ -522,7 +548,8 @@ contract KernelVaultExecutionSemanticsTest is Test {
         bytes memory callData = hex"abcdef12";
         bytes memory agentOutput = _buildCallAction(targetAddr, 0, callData);
 
-        bytes32 expectedCommitment = hex"e4698fa954ff344739ef6cf0659fd646f64bbc2e553b32d80314fe460cd066b4";
+        bytes32 expectedCommitment =
+            hex"e4698fa954ff344739ef6cf0659fd646f64bbc2e553b32d80314fe460cd066b4";
         bytes32 actualCommitment = sha256(agentOutput);
 
         // Note: Our encoding may differ slightly from fixtures due to action ordering
@@ -539,7 +566,8 @@ contract KernelVaultExecutionSemanticsTest is Test {
         KernelOutputParser.Action[] memory actions = new KernelOutputParser.Action[](0);
         bytes memory agentOutput = KernelOutputParser.encodeAgentOutput(actions);
 
-        bytes32 expectedCommitment = hex"df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119";
+        bytes32 expectedCommitment =
+            hex"df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119";
         bytes32 actualCommitment = sha256(agentOutput);
 
         assertEq(actualCommitment, expectedCommitment, "empty output commitment should match");
