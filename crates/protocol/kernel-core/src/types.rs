@@ -429,6 +429,7 @@ mod tests {
     /// This isn't strictly required by the protocol, but helps ensure
     /// we don't accidentally shuffle values around.
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn test_action_types_ordering() {
         assert!(ACTION_TYPE_ECHO < ACTION_TYPE_CALL);
         assert!(ACTION_TYPE_CALL < ACTION_TYPE_TRANSFER_ERC20);
