@@ -56,7 +56,7 @@ use kernel_sdk::prelude::*;
 /// Agents should handle errors gracefully and return empty outputs
 /// rather than panicking when possible.
 #[no_mangle]
-pub extern "Rust" fn agent_main(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
+pub extern "Rust" fn agent_main(ctx: &AgentContext, _opaque_inputs: &[u8]) -> AgentOutput {
     // Validate kernel version (optional but recommended)
     if !ctx.is_kernel_v1() {
         // Return empty output for unsupported versions
