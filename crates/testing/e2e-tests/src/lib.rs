@@ -33,8 +33,7 @@
 pub mod phase3_yield;
 
 use kernel_core::{
-    compute_action_commitment, compute_input_commitment, AgentOutput, CanonicalDecode,
-    CanonicalEncode, ExecutionStatus, KernelInputV1, KernelJournalV1, KERNEL_VERSION,
+    compute_action_commitment, AgentOutput, CanonicalEncode, KernelInputV1, KERNEL_VERSION,
     PROTOCOL_VERSION,
 };
 
@@ -63,7 +62,11 @@ pub fn make_valid_input(vault: [u8; 20], yield_source: [u8; 20], amount: u64) ->
 /// Helper to construct a KernelInputV1 with a WRONG agent_code_hash.
 ///
 /// Used to test that hash mismatches cause execution failures.
-pub fn make_input_with_wrong_hash(vault: [u8; 20], yield_source: [u8; 20], amount: u64) -> KernelInputV1 {
+pub fn make_input_with_wrong_hash(
+    vault: [u8; 20],
+    yield_source: [u8; 20],
+    amount: u64,
+) -> KernelInputV1 {
     let mut opaque_agent_inputs = Vec::with_capacity(48);
     opaque_agent_inputs.extend_from_slice(&vault);
     opaque_agent_inputs.extend_from_slice(&yield_source);
@@ -102,8 +105,7 @@ pub fn make_input_with_invalid_size(opaque_agent_inputs: Vec<u8>) -> KernelInput
 /// When the yield agent receives valid 48-byte input, it produces:
 /// - Two CALL actions (deposit and withdraw)
 pub fn compute_yield_commitment(vault: [u8; 20], yield_source: [u8; 20], amount: u64) -> [u8; 32] {
-    use kernel_core::ActionV1;
-    use kernel_sdk::prelude::{call_action, address_to_bytes32, ACTION_TYPE_CALL};
+    use kernel_sdk::prelude::{address_to_bytes32, call_action};
 
     let target = address_to_bytes32(&yield_source);
 
@@ -133,6 +135,7 @@ pub fn compute_yield_commitment(vault: [u8; 20], yield_source: [u8; 20], amount:
 mod zkvm_tests {
     use super::*;
     use constraints::EMPTY_OUTPUT_COMMITMENT;
+    use kernel_core::{CanonicalDecode, ExecutionStatus, KernelJournalV1};
     use risc0_methods::{ZKVM_GUEST_ELF, ZKVM_GUEST_ID};
     use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts};
 
@@ -198,7 +201,10 @@ mod zkvm_tests {
         assert_eq!(journal.protocol_version, PROTOCOL_VERSION);
         assert_eq!(journal.kernel_version, KERNEL_VERSION);
         assert_eq!(journal.agent_id, [0x42; 32]);
-        assert_eq!(journal.agent_code_hash, example_yield_agent::AGENT_CODE_HASH);
+        assert_eq!(
+            journal.agent_code_hash,
+            example_yield_agent::AGENT_CODE_HASH
+        );
         assert_eq!(journal.constraint_set_hash, [0xbb; 32]);
         assert_eq!(journal.input_root, [0xcc; 32]);
         assert_eq!(journal.execution_nonce, 1);
@@ -220,10 +226,8 @@ mod zkvm_tests {
         // Extract seal for on-chain verification
         if let risc0_zkvm::InnerReceipt::Groth16(groth16_receipt) = &receipt.inner {
             // Convert image_id [u32; 8] to bytes32 (little-endian)
-            let image_id_bytes: Vec<u8> = ZKVM_GUEST_ID
-                .iter()
-                .flat_map(|x| x.to_le_bytes())
-                .collect();
+            let image_id_bytes: Vec<u8> =
+                ZKVM_GUEST_ID.iter().flat_map(|x| x.to_le_bytes()).collect();
 
             // Convert agent_id to hex for on-chain use
             let agent_id_bytes: [u8; 32] = [0x42; 32];
@@ -235,9 +239,15 @@ mod zkvm_tests {
             encoded_seal.extend_from_slice(&groth16_receipt.seal);
 
             println!("\n=== On-chain verification data ===");
-            println!("verifier_parameters: 0x{}", hex::encode(groth16_receipt.verifier_parameters.as_bytes()));
+            println!(
+                "verifier_parameters: 0x{}",
+                hex::encode(groth16_receipt.verifier_parameters.as_bytes())
+            );
             println!("selector (first 4 bytes): 0x{}", hex::encode(selector));
-            println!("seal (with selector, hex): 0x{}", hex::encode(&encoded_seal));
+            println!(
+                "seal (with selector, hex): 0x{}",
+                hex::encode(&encoded_seal)
+            );
             println!("seal length (with selector): {} bytes", encoded_seal.len());
             println!("journal (hex): 0x{}", hex::encode(&receipt.journal.bytes));
             println!("journal length: {} bytes", receipt.journal.bytes.len());
@@ -414,6 +424,7 @@ mod zkvm_tests {
 #[cfg(test)]
 mod unit_tests {
     use super::*;
+    use kernel_core::CanonicalDecode;
 
     #[test]
     fn test_make_valid_input_uses_correct_hash() {

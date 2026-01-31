@@ -15,13 +15,13 @@
 
 extern crate alloc;
 
-pub mod types;
 pub mod codec;
 pub mod hash;
+pub mod types;
 
-pub use types::*;
 pub use codec::*;
 pub use hash::*;
+pub use types::*;
 
 /// Protocol version for wire format compatibility
 pub const PROTOCOL_VERSION: u32 = 1;

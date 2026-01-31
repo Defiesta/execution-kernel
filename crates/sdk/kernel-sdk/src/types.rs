@@ -29,12 +29,7 @@
 use alloc::vec::Vec;
 
 // Re-export core types from kernel-core
-pub use kernel_core::{
-    ActionV1,
-    AgentOutput,
-    MAX_ACTION_PAYLOAD_BYTES,
-    MAX_ACTIONS_PER_OUTPUT,
-};
+pub use kernel_core::{ActionV1, AgentOutput, MAX_ACTIONS_PER_OUTPUT, MAX_ACTION_PAYLOAD_BYTES};
 
 // ============================================================================
 // Action Type Constants
@@ -318,7 +313,7 @@ fn encode_u256_be(value: u128) -> [u8; 32] {
 fn encode_call_payload(value: u128, call_data: &[u8]) -> Vec<u8> {
     let data_len = call_data.len();
     // Pad data to 32-byte boundary
-    let padded_len = ((data_len + 31) / 32) * 32;
+    let padded_len = data_len.div_ceil(32) * 32;
 
     // Total size: 32 (value) + 32 (offset) + 32 (length) + padded_data
     let total_size = 96 + padded_len;
@@ -492,13 +487,7 @@ mod tests {
 
     #[test]
     fn test_open_position_action() {
-        let action = open_position_action(
-            [0x11; 32],
-            [0x42; 32],
-            1000,
-            10000,
-            0,
-        );
+        let action = open_position_action([0x11; 32], [0x42; 32], 1000, 10000, 0);
 
         assert_eq!(action.action_type, ACTION_TYPE_OPEN_POSITION);
         assert_eq!(action.payload.len(), OPEN_POSITION_PAYLOAD_SIZE);
@@ -521,12 +510,7 @@ mod tests {
 
     #[test]
     fn test_adjust_position_action() {
-        let action = adjust_position_action(
-            [0x11; 32],
-            [0x99; 32],
-            2000,
-            20000,
-        );
+        let action = adjust_position_action([0x11; 32], [0x99; 32], 2000, 20000);
 
         assert_eq!(action.action_type, ACTION_TYPE_ADJUST_POSITION);
         assert_eq!(action.payload.len(), ADJUST_POSITION_PAYLOAD_SIZE);
@@ -539,12 +523,7 @@ mod tests {
 
     #[test]
     fn test_swap_action() {
-        let action = swap_action(
-            [0x11; 32],
-            [0xaa; 32],
-            [0xbb; 32],
-            5000,
-        );
+        let action = swap_action([0x11; 32], [0xaa; 32], [0xbb; 32], 5000);
 
         assert_eq!(action.action_type, ACTION_TYPE_SWAP);
         assert_eq!(action.payload.len(), SWAP_PAYLOAD_SIZE);
@@ -574,11 +553,7 @@ mod tests {
     #[test]
     fn test_decode_open_position_payload() {
         let action = open_position_action(
-            [0x11; 32],
-            [0x42; 32],
-            1000,
-            10000,
-            1, // Short
+            [0x11; 32], [0x42; 32], 1000, 10000, 1, // Short
         );
 
         let decoded = decode_open_position_payload(&action.payload).unwrap();
@@ -610,12 +585,7 @@ mod tests {
 
     #[test]
     fn test_decode_adjust_position_payload() {
-        let action = adjust_position_action(
-            [0x11; 32],
-            [0x99; 32],
-            2000,
-            20000,
-        );
+        let action = adjust_position_action([0x11; 32], [0x99; 32], 2000, 20000);
 
         let decoded = decode_adjust_position_payload(&action.payload).unwrap();
         assert_eq!(decoded.position_id, [0x99; 32]);
@@ -631,12 +601,7 @@ mod tests {
 
     #[test]
     fn test_decode_swap_payload() {
-        let action = swap_action(
-            [0x11; 32],
-            [0xaa; 32],
-            [0xbb; 32],
-            5000,
-        );
+        let action = swap_action([0x11; 32], [0xaa; 32], [0xbb; 32], 5000);
 
         let decoded = decode_swap_payload(&action.payload).unwrap();
         assert_eq!(decoded.from_asset, [0xaa; 32]);

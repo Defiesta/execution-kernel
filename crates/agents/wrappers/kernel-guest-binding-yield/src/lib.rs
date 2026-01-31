@@ -10,9 +10,9 @@
 //! let result = guest_wrapper_yield_agent::kernel_main(&input_bytes)?;
 //! ```
 
+use kernel_core::AgentOutput;
 use kernel_guest::AgentEntrypoint;
 use kernel_sdk::agent::AgentContext;
-use kernel_core::AgentOutput;
 
 // Re-export the agent code hash for convenience.
 pub use example_yield_agent::AGENT_CODE_HASH;

@@ -12,9 +12,9 @@
 //! semantics. The constraint engine evaluates actions in canonical sorted order,
 //! and `violation_action_index` refers to the position in that sorted order.
 
-use alloc::vec::Vec;
 use crate::types::*;
-use crate::{MAX_AGENT_INPUT_BYTES, MAX_AGENT_OUTPUT_BYTES, PROTOCOL_VERSION, KERNEL_VERSION};
+use crate::{KERNEL_VERSION, MAX_AGENT_INPUT_BYTES, MAX_AGENT_OUTPUT_BYTES, PROTOCOL_VERSION};
+use alloc::vec::Vec;
 
 // ============================================================================
 // Helper Functions - Encoding
@@ -65,14 +65,16 @@ pub fn put_var_bytes(buf: &mut Vec<u8>, data: &[u8], max_len: usize) -> Result<(
 /// Advances offset by 4 on success.
 #[inline]
 pub fn get_u32_le(bytes: &[u8], offset: &mut usize) -> Result<u32, CodecError> {
-    let end = offset.checked_add(4).ok_or(CodecError::ArithmeticOverflow)?;
+    let end = offset
+        .checked_add(4)
+        .ok_or(CodecError::ArithmeticOverflow)?;
     if end > bytes.len() {
         return Err(CodecError::UnexpectedEndOfInput);
     }
     let value = u32::from_le_bytes(
         bytes[*offset..end]
             .try_into()
-            .map_err(|_| CodecError::UnexpectedEndOfInput)?
+            .map_err(|_| CodecError::UnexpectedEndOfInput)?,
     );
     *offset = end;
     Ok(value)
@@ -82,14 +84,16 @@ pub fn get_u32_le(bytes: &[u8], offset: &mut usize) -> Result<u32, CodecError> {
 /// Advances offset by 8 on success.
 #[inline]
 pub fn get_u64_le(bytes: &[u8], offset: &mut usize) -> Result<u64, CodecError> {
-    let end = offset.checked_add(8).ok_or(CodecError::ArithmeticOverflow)?;
+    let end = offset
+        .checked_add(8)
+        .ok_or(CodecError::ArithmeticOverflow)?;
     if end > bytes.len() {
         return Err(CodecError::UnexpectedEndOfInput);
     }
     let value = u64::from_le_bytes(
         bytes[*offset..end]
             .try_into()
-            .map_err(|_| CodecError::UnexpectedEndOfInput)?
+            .map_err(|_| CodecError::UnexpectedEndOfInput)?,
     );
     *offset = end;
     Ok(value)
@@ -99,7 +103,9 @@ pub fn get_u64_le(bytes: &[u8], offset: &mut usize) -> Result<u64, CodecError> {
 /// Advances offset by 32 on success.
 #[inline]
 pub fn get_bytes32(bytes: &[u8], offset: &mut usize) -> Result<[u8; 32], CodecError> {
-    let end = offset.checked_add(32).ok_or(CodecError::ArithmeticOverflow)?;
+    let end = offset
+        .checked_add(32)
+        .ok_or(CodecError::ArithmeticOverflow)?;
     if end > bytes.len() {
         return Err(CodecError::UnexpectedEndOfInput);
     }
@@ -126,7 +132,11 @@ pub fn get_u8(bytes: &[u8], offset: &mut usize) -> Result<u8, CodecError> {
 /// Advances offset by 4 + length on success.
 /// Returns error if length exceeds max_len.
 #[inline]
-pub fn get_var_bytes(bytes: &[u8], offset: &mut usize, max_len: usize) -> Result<Vec<u8>, CodecError> {
+pub fn get_var_bytes(
+    bytes: &[u8],
+    offset: &mut usize,
+    max_len: usize,
+) -> Result<Vec<u8>, CodecError> {
     let len_u32 = get_u32_le(bytes, offset)?;
 
     if len_u32 > max_len as u32 {
@@ -137,7 +147,9 @@ pub fn get_var_bytes(bytes: &[u8], offset: &mut usize, max_len: usize) -> Result
     }
 
     let len = len_u32 as usize;
-    let end = offset.checked_add(len).ok_or(CodecError::ArithmeticOverflow)?;
+    let end = offset
+        .checked_add(len)
+        .ok_or(CodecError::ArithmeticOverflow)?;
 
     if end > bytes.len() {
         return Err(CodecError::UnexpectedEndOfInput);
@@ -151,8 +163,14 @@ pub fn get_var_bytes(bytes: &[u8], offset: &mut usize, max_len: usize) -> Result
 /// Decode a fixed-length slice at offset.
 /// Advances offset by len on success.
 #[inline]
-pub fn get_slice<'a>(bytes: &'a [u8], offset: &mut usize, len: usize) -> Result<&'a [u8], CodecError> {
-    let end = offset.checked_add(len).ok_or(CodecError::ArithmeticOverflow)?;
+pub fn get_slice<'a>(
+    bytes: &'a [u8],
+    offset: &mut usize,
+    len: usize,
+) -> Result<&'a [u8], CodecError> {
+    let end = offset
+        .checked_add(len)
+        .ok_or(CodecError::ArithmeticOverflow)?;
     if end > bytes.len() {
         return Err(CodecError::UnexpectedEndOfInput);
     }
@@ -528,7 +546,9 @@ impl CanonicalDecode for ActionV1 {
         }
 
         let payload_len = payload_len_u32 as usize;
-        let end = offset.checked_add(payload_len).ok_or(CodecError::ArithmeticOverflow)?;
+        let end = offset
+            .checked_add(payload_len)
+            .ok_or(CodecError::ArithmeticOverflow)?;
         if end > bytes.len() {
             return Err(CodecError::UnexpectedEndOfInput);
         }
@@ -625,7 +645,11 @@ impl CanonicalEncode for AgentOutput {
             put_u32_le(out, action_len as u32);
             let before = out.len();
             action.encode_into(out)?;
-            debug_assert_eq!(out.len() - before, action_len, "encoded_len() / encode_into() mismatch");
+            debug_assert_eq!(
+                out.len() - before,
+                action_len,
+                "encoded_len() / encode_into() mismatch"
+            );
         }
 
         // Verify total encoded size doesn't exceed limit
@@ -744,7 +768,10 @@ mod tests {
         let mut offset = 0;
         assert!(matches!(
             get_var_bytes(&bytes, &mut offset, 10),
-            Err(CodecError::InputTooLarge { size: 16, limit: 10 })
+            Err(CodecError::InputTooLarge {
+                size: 16,
+                limit: 10
+            })
         ));
     }
 

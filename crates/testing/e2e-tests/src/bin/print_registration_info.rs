@@ -8,7 +8,9 @@
 #[cfg(not(feature = "phase3-e2e"))]
 fn main() {
     eprintln!("ERROR: This binary requires the phase3-e2e feature.");
-    eprintln!("Run with: cargo run -p e2e-tests --bin print_registration_info --features phase3-e2e");
+    eprintln!(
+        "Run with: cargo run -p e2e-tests --bin print_registration_info --features phase3-e2e"
+    );
     std::process::exit(1);
 }
 
@@ -28,12 +30,16 @@ fn main() {
     println!("  the kernel-guest with --features example-yield-agent.");
     println!();
     println!("  To get it, run the existing e2e tests with --nocapture:");
-    println!("  cargo test -p e2e-tests --features risc0-e2e test_e2e_success_with_echo -- --nocapture");
+    println!(
+        "  cargo test -p e2e-tests --features risc0-e2e test_e2e_success_with_echo -- --nocapture"
+    );
     println!();
     println!("  Or add this to your test:");
     println!("  ```rust");
     println!("  use methods::ZKVM_GUEST_ID;");
-    println!("  let image_id: Vec<u8> = ZKVM_GUEST_ID.iter().flat_map(|x| x.to_le_bytes()).collect();");
+    println!(
+        "  let image_id: Vec<u8> = ZKVM_GUEST_ID.iter().flat_map(|x| x.to_le_bytes()).collect();"
+    );
     println!("  println!(\"imageId: 0x{{}}\", hex::encode(&image_id));");
     println!("  ```");
     println!();
@@ -52,7 +58,9 @@ fn main() {
     println!("3. Deploy KernelVault with:");
     println!("   - _asset: Your ERC20 token address (or use WETH)");
     println!("   - _verifier: KernelExecutionVerifier address");
-    println!("   - _agentId: The AGENT_ID you chose (any bytes32, used to identify this vault's agent)");
+    println!(
+        "   - _agentId: The AGENT_ID you chose (any bytes32, used to identify this vault's agent)"
+    );
     println!();
 
     // Example values
@@ -61,5 +69,8 @@ fn main() {
     println!("  AGENT_ID=0x4242424242424242424242424242424242424242424242424242424242424242");
     println!();
     println!("The AGENT_ID in KernelInputV1 must match the vault's agentId.");
-    println!("The agent_code_hash in KernelInputV1 must match: 0x{}", hex::encode(&agent_code_hash));
+    println!(
+        "The agent_code_hash in KernelInputV1 must match: 0x{}",
+        hex::encode(&agent_code_hash)
+    );
 }

@@ -32,10 +32,14 @@
 //! # Features
 //!
 //! - `risc0` - Enable IMAGE_ID computation from ELF binaries
+//! - `onchain` - Enable on-chain verification against KernelExecutionVerifier
 
 pub mod hash;
 pub mod image_id;
 pub mod manifest;
+#[cfg(feature = "onchain")]
+pub mod onchain;
+pub mod pack;
 pub mod verify;
 
 // Re-export main types at crate root
@@ -44,6 +48,7 @@ pub use image_id::{compute_image_id_from_bytes, compute_image_id_from_file, Imag
 pub use manifest::{
     AgentPackManifest, Artifacts, BuildInfo, GitInfo, ManifestError, NetworkConfig, FORMAT_VERSION,
 };
+pub use pack::{pack_bundle, PackError, PackOptions, PackResult};
 pub use verify::{
     verify_manifest_structure, verify_manifest_with_files, VerificationError, VerificationReport,
 };

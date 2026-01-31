@@ -201,15 +201,7 @@ mod tests {
 
     #[test]
     fn test_agent_context_copy() {
-        let ctx = AgentContext::new(
-            1,
-            1,
-            [0x42u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-            42,
-        );
+        let ctx = AgentContext::new(1, 1, [0x42u8; 32], [0u8; 32], [0u8; 32], [0u8; 32], 42);
 
         // AgentContext is Copy
         let ctx2 = ctx;

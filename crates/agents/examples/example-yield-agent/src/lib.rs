@@ -29,7 +29,7 @@
 
 extern crate alloc;
 
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use kernel_sdk::prelude::*;
 
 // Include the generated agent hash constant.
@@ -65,7 +65,9 @@ pub extern "Rust" fn agent_main(_ctx: &AgentContext, opaque_inputs: &[u8]) -> Ag
     // Validate input size
     if opaque_inputs.len() != INPUT_SIZE {
         // Invalid input - return empty output (will be handled by constraints)
-        return AgentOutput { actions: Vec::new() };
+        return AgentOutput {
+            actions: Vec::new(),
+        };
     }
 
     // Parse input
@@ -86,11 +88,9 @@ pub extern "Rust" fn agent_main(_ctx: &AgentContext, opaque_inputs: &[u8]) -> Ag
     let withdraw_action = call_action(target, 0, &withdraw_calldata);
 
     // Return both actions (deposit first, then withdraw)
-    let mut actions = Vec::with_capacity(2);
-    actions.push(deposit_action);
-    actions.push(withdraw_action);
-
-    AgentOutput { actions }
+    AgentOutput {
+        actions: vec![deposit_action, withdraw_action],
+    }
 }
 
 // ============================================================================
@@ -106,7 +106,6 @@ fn encode_withdraw_call(depositor: &[u8; 20]) -> Vec<u8> {
     calldata.extend_from_slice(&address_to_bytes32(depositor));
     calldata
 }
-
 
 // ============================================================================
 // Compile-time ABI Verification
@@ -154,8 +153,14 @@ mod tests {
 
         // Both actions should target the yield source
         let expected_target = address_to_bytes32(&yield_source);
-        assert_eq!(output.actions[0].target, expected_target, "Deposit target mismatch");
-        assert_eq!(output.actions[1].target, expected_target, "Withdraw target mismatch");
+        assert_eq!(
+            output.actions[0].target, expected_target,
+            "Deposit target mismatch"
+        );
+        assert_eq!(
+            output.actions[1].target, expected_target,
+            "Withdraw target mismatch"
+        );
 
         // Both actions should be CALL type
         assert_eq!(output.actions[0].action_type, ACTION_TYPE_CALL);
@@ -184,7 +189,11 @@ mod tests {
         let deposit_payload = &output.actions[0].payload;
 
         // Should be 96 bytes (32 + 32 + 32 + 0 padded)
-        assert_eq!(deposit_payload.len(), 96, "Deposit payload should be 96 bytes");
+        assert_eq!(
+            deposit_payload.len(),
+            96,
+            "Deposit payload should be 96 bytes"
+        );
 
         // Check value encoding (bytes 0-31)
         let value_bytes = &deposit_payload[0..32];
@@ -223,7 +232,11 @@ mod tests {
 
         // payload = 32 (value) + 32 (offset) + 32 (length) + 64 (padded calldata)
         // 36 bytes padded to 32-byte boundary = 64 bytes
-        assert_eq!(withdraw_payload.len(), 160, "Withdraw payload should be 160 bytes");
+        assert_eq!(
+            withdraw_payload.len(),
+            160,
+            "Withdraw payload should be 160 bytes"
+        );
 
         // Check value = 0 (bytes 0-31)
         assert_eq!(&withdraw_payload[0..32], &[0u8; 32]);
@@ -282,12 +295,18 @@ mod tests {
         // Test too short
         let short_input = alloc::vec![0u8; 40];
         let output = agent_main(&ctx, &short_input);
-        assert!(output.actions.is_empty(), "Short input should produce empty output");
+        assert!(
+            output.actions.is_empty(),
+            "Short input should produce empty output"
+        );
 
         // Test too long
         let long_input = alloc::vec![0u8; 50];
         let output = agent_main(&ctx, &long_input);
-        assert!(output.actions.is_empty(), "Long input should produce empty output");
+        assert!(
+            output.actions.is_empty(),
+            "Long input should produce empty output"
+        );
     }
 
     #[test]

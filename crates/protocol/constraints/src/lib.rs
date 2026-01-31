@@ -4,7 +4,7 @@
 //! See spec/constraints.md for the full specification.
 
 use kernel_core::{
-    AgentOutput, ActionV1, ConstraintError, ConstraintViolation, ConstraintViolationReason,
+    ActionV1, AgentOutput, ConstraintError, ConstraintViolation, ConstraintViolationReason,
     KernelInputV1, MAX_ACTIONS_PER_OUTPUT, MAX_ACTION_PAYLOAD_BYTES,
 };
 
@@ -45,10 +45,8 @@ pub const ACTION_TYPE_NO_OP: u32 = 0x00000004;
 
 /// SHA-256 hash of empty AgentOutput encoding [0x00, 0x00, 0x00, 0x00]
 pub const EMPTY_OUTPUT_COMMITMENT: [u8; 32] = [
-    0xdf, 0x3f, 0x61, 0x98, 0x04, 0xa9, 0x2f, 0xdb,
-    0x40, 0x57, 0x19, 0x2d, 0xc4, 0x3d, 0xd7, 0x48,
-    0xea, 0x77, 0x8a, 0xdc, 0x52, 0xbc, 0x49, 0x8c,
-    0xe8, 0x05, 0x24, 0xc0, 0x14, 0xb8, 0x11, 0x19,
+    0xdf, 0x3f, 0x61, 0x98, 0x04, 0xa9, 0x2f, 0xdb, 0x40, 0x57, 0x19, 0x2d, 0xc4, 0x3d, 0xd7, 0x48,
+    0xea, 0x77, 0x8a, 0xdc, 0x52, 0xbc, 0x49, 0x8c, 0xe8, 0x05, 0x24, 0xc0, 0x14, 0xb8, 0x11, 0x19,
 ];
 
 // ============================================================================
@@ -89,11 +87,11 @@ impl Default for ConstraintSetV1 {
         Self {
             version: 1,
             max_position_notional: u64::MAX,
-            max_leverage_bps: 100_000,  // 10x max leverage
-            max_drawdown_bps: 10_000,   // 100% (disabled)
+            max_leverage_bps: 100_000, // 10x max leverage
+            max_drawdown_bps: 10_000,  // 100% (disabled)
             cooldown_seconds: 0,
             max_actions_per_output: MAX_ACTIONS_PER_OUTPUT as u32,
-            allowed_asset_id: [0u8; 32],  // All assets allowed
+            allowed_asset_id: [0u8; 32], // All assets allowed
         }
     }
 }
@@ -435,9 +433,7 @@ fn validate_action(
                 ))
             }
         }
-        ACTION_TYPE_SWAP => {
-            validate_swap(action, index, constraint_set)
-        }
+        ACTION_TYPE_SWAP => validate_swap(action, index, constraint_set),
         _ => {
             // Unknown action type
             Err(ConstraintViolation::action(
@@ -596,7 +592,7 @@ fn validate_call_action(action: &ActionV1, index: usize) -> Result<(), Constrain
 
     let calldata_len = u256_from_be_bytes(&action.payload[64..96]);
     // Verify payload length matches declared calldata length (with 32-byte padding)
-    let expected_len = 96 + ((calldata_len as usize + 31) / 32) * 32;
+    let expected_len = 96 + (calldata_len as usize).div_ceil(32) * 32;
     if action.payload.len() != expected_len {
         return Err(ConstraintViolation::action(
             ConstraintViolationReason::InvalidActionPayload,
@@ -611,7 +607,10 @@ fn validate_call_action(action: &ActionV1, index: usize) -> Result<(), Constrain
 ///
 /// Payload format: abi.encode(address token, address to, uint256 amount)
 /// Size: exactly 96 bytes
-fn validate_transfer_erc20_action(action: &ActionV1, index: usize) -> Result<(), ConstraintViolation> {
+fn validate_transfer_erc20_action(
+    action: &ActionV1,
+    index: usize,
+) -> Result<(), ConstraintViolation> {
     if action.payload.len() != 96 {
         return Err(ConstraintViolation::action(
             ConstraintViolationReason::InvalidActionPayload,
@@ -703,9 +702,7 @@ fn validate_global_constraints(
 
         // Calculate drawdown in basis points
         // drawdown_bps = (peak - current) * 10000 / peak
-        let drawdown = snapshot
-            .peak_equity
-            .saturating_sub(snapshot.current_equity);
+        let drawdown = snapshot.peak_equity.saturating_sub(snapshot.current_equity);
         // SAFETY: peak_equity != 0 is verified above, so division cannot fail
         let drawdown_bps = drawdown
             .saturating_mul(10_000)
@@ -818,7 +815,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::UnknownActionType);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::UnknownActionType
+        );
         assert_eq!(violation.action_index, Some(0));
     }
 
@@ -840,7 +840,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::PositionTooLarge);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::PositionTooLarge
+        );
     }
 
     #[test]
@@ -888,7 +891,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::CooldownNotElapsed);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::CooldownNotElapsed
+        );
     }
 
     #[test]
@@ -915,7 +921,10 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::DrawdownExceeded);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::DrawdownExceeded
+        );
     }
 
     #[test]
@@ -929,13 +938,16 @@ mod tests {
         let result = enforce_constraints(&input, &output, &constraints);
         assert!(result.is_err());
         let violation = result.unwrap_err();
-        assert_eq!(violation.reason, ConstraintViolationReason::InvalidOutputStructure);
+        assert_eq!(
+            violation.reason,
+            ConstraintViolationReason::InvalidOutputStructure
+        );
     }
 
     #[test]
     fn test_empty_output_commitment_constant() {
         // Verify the empty output commitment constant is correct
-        use kernel_core::{CanonicalEncode, compute_action_commitment};
+        use kernel_core::{compute_action_commitment, CanonicalEncode};
 
         let empty_output = AgentOutput { actions: vec![] };
         let encoded = empty_output.encode().unwrap();

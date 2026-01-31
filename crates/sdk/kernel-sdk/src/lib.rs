@@ -117,85 +117,68 @@ pub mod prelude {
 
     // Core types
     pub use crate::types::{
-        ActionV1,
-        AgentOutput,
-        MAX_ACTIONS_PER_OUTPUT,
-        MAX_ACTION_PAYLOAD_BYTES,
+        ActionV1, AgentOutput, MAX_ACTIONS_PER_OUTPUT, MAX_ACTION_PAYLOAD_BYTES,
     };
 
     // Action type constants
     pub use crate::types::{
-        ACTION_TYPE_ECHO,
-        ACTION_TYPE_OPEN_POSITION,
-        ACTION_TYPE_CLOSE_POSITION,
         ACTION_TYPE_ADJUST_POSITION,
-        ACTION_TYPE_SWAP,
         // On-chain execution action types
         ACTION_TYPE_CALL,
-        ACTION_TYPE_TRANSFER_ERC20,
+        ACTION_TYPE_CLOSE_POSITION,
+        ACTION_TYPE_ECHO,
         ACTION_TYPE_NO_OP,
+        ACTION_TYPE_OPEN_POSITION,
+        ACTION_TYPE_SWAP,
+        ACTION_TYPE_TRANSFER_ERC20,
     };
 
     // Action constructors
     pub use crate::types::{
-        echo_action,
-        open_position_action,
-        close_position_action,
+        address_to_bytes32,
         adjust_position_action,
-        swap_action,
         // On-chain execution helpers
         call_action,
-        address_to_bytes32,
+        close_position_action,
+        echo_action,
+        open_position_action,
+        swap_action,
     };
 
     // Payload decode helpers + types
     pub use crate::types::{
-        decode_open_position_payload,
-        decode_close_position_payload,
-        decode_adjust_position_payload,
-        decode_swap_payload,
-        DecodedOpenPosition,
-        DecodedAdjustPosition,
-        DecodedSwap,
+        decode_adjust_position_payload, decode_close_position_payload,
+        decode_open_position_payload, decode_swap_payload, DecodedAdjustPosition,
+        DecodedOpenPosition, DecodedSwap,
     };
 
     // Math helpers (canonical primitives)
     pub use crate::math::{
-        // Checked arithmetic
-        checked_add_u64,
-        checked_sub_u64,
-        checked_mul_u64,
-        checked_div_u64,
-        checked_mul_div_u64,
-        // Saturating arithmetic
-        saturating_add_u64,
-        saturating_sub_u64,
-        saturating_mul_u64,
         // Basis points
         apply_bps,
         calculate_bps,
+        // Checked arithmetic
+        checked_add_u64,
+        checked_div_u64,
+        checked_mul_div_u64,
+        checked_mul_u64,
+        checked_sub_u64,
         drawdown_bps,
+        // Saturating arithmetic
+        saturating_add_u64,
+        saturating_mul_u64,
+        saturating_sub_u64,
         BPS_DENOMINATOR,
     };
 
     // Byte helpers (fixed offset)
     pub use crate::bytes::{
-        read_u8,
-        read_u32_le,
-        read_u64_le,
-        read_bytes32,
-        read_slice,
-        is_zero_bytes32,
+        is_zero_bytes32, read_bytes32, read_slice, read_u32_le, read_u64_le, read_u8,
     };
 
     // Byte helpers (cursor-style)
     pub use crate::bytes::{
-        read_u8_at,
-        read_u32_le_at,
-        read_u64_le_at,
-        read_bytes32_at,
-        read_slice_at,
-        read_bool_u8_at,
+        read_bool_u8_at, read_bytes32_at, read_slice_at, read_u32_le_at, read_u64_le_at, read_u8_at,
     };
 
     // Re-export Vec for no_std agent code
@@ -226,8 +209,9 @@ pub const SDK_VERSION_PATCH: u8 = 0;
 /// SDK version (major.minor.patch encoded as u32).
 ///
 /// Format: `(major << 16) | (minor << 8) | patch`
-pub const SDK_VERSION: u32 =
-    ((SDK_VERSION_MAJOR as u32) << 16) | ((SDK_VERSION_MINOR as u32) << 8) | (SDK_VERSION_PATCH as u32);
+pub const SDK_VERSION: u32 = ((SDK_VERSION_MAJOR as u32) << 16)
+    | ((SDK_VERSION_MINOR as u32) << 8)
+    | (SDK_VERSION_PATCH as u32);
 
 /// Minimum supported kernel version.
 pub const MIN_KERNEL_VERSION: u32 = 1;

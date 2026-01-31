@@ -3,3 +3,6 @@ target/
 */target/
 /.claude
 /prompts
+
+# Generated agent-pack manifests (keep only the example)
+dist/agent-pack.json

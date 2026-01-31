@@ -8,16 +8,14 @@ fn create_valid_manifest() -> AgentPackManifest {
         format_version: "1".to_string(),
         agent_name: "test-agent".to_string(),
         agent_version: "1.0.0".to_string(),
-        agent_id: "0x0000000000000000000000000000000000000000000000000000000000000001"
-            .to_string(),
+        agent_id: "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
         protocol_version: 1,
         kernel_version: 1,
         risc0_version: "3.0.4".to_string(),
         rust_toolchain: "1.75.0".to_string(),
         agent_code_hash: "0x5aac6b1fedf1b0c0ccc037c3223b7b5c8b679f48b9c599336c0dc777be88924b"
             .to_string(),
-        image_id: "0x5f42241afd61bf9e341442c8baffa9c544cf20253720f2540cf6705f27bae2c4"
-            .to_string(),
+        image_id: "0x5f42241afd61bf9e341442c8baffa9c544cf20253720f2540cf6705f27bae2c4".to_string(),
         artifacts: agent_pack::Artifacts {
             elf_path: "artifacts/zkvm-guest.elf".to_string(),
             elf_sha256: "0xabcdef0000000000000000000000000000000000000000000000000000000123"
@@ -81,10 +79,9 @@ fn test_manifest_validation_detects_placeholder() {
 
     let report = verify_manifest_structure(&manifest);
     assert!(!report.passed);
-    assert!(report
-        .errors
-        .iter()
-        .any(|e| matches!(e, VerificationError::PlaceholderFound { field } if field == "image_id")));
+    assert!(report.errors.iter().any(
+        |e| matches!(e, VerificationError::PlaceholderFound { field } if field == "image_id")
+    ));
 }
 
 #[test]
@@ -223,7 +220,7 @@ fn test_manifest_empty_networks_not_serialized() {
     // The field might still appear as {} or not at all depending on serde behavior
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     if let Some(networks) = parsed.get("networks") {
-        assert!(networks.as_object().map_or(true, |o| o.is_empty()));
+        assert!(networks.as_object().is_none_or(|o| o.is_empty()));
     }
 }
 

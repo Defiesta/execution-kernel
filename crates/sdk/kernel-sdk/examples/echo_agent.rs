@@ -150,10 +150,10 @@ fn trading_agent(ctx: &AgentContext, opaque_inputs: &[u8]) -> AgentOutput {
 
     // Create open position action using SDK helper
     let action = open_position_action(
-        ctx.agent_id,  // target: self
+        ctx.agent_id, // target: self
         asset_id,
         notional,
-        10_000,         // 1x leverage
+        10_000, // 1x leverage
         direction,
     );
 
@@ -214,12 +214,7 @@ mod tests {
 
     #[test]
     fn test_echo_agent_basic() {
-        let ctx = make_test_context(
-            [0x42u8; 32],
-            [0xaau8; 32],
-            [0xbbu8; 32],
-            [0xccu8; 32],
-        );
+        let ctx = make_test_context([0x42u8; 32], [0xaau8; 32], [0xbbu8; 32], [0xccu8; 32]);
         let inputs = [1u8, 2, 3, 4, 5];
 
         let output = agent_main(&ctx, &inputs);
@@ -232,12 +227,7 @@ mod tests {
 
     #[test]
     fn test_echo_agent_empty_input() {
-        let ctx = make_test_context(
-            [0x42u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-        );
+        let ctx = make_test_context([0x42u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
         let inputs: [u8; 0] = [];
 
         let output = agent_main(&ctx, &inputs);
@@ -248,12 +238,7 @@ mod tests {
 
     #[test]
     fn test_noop_agent() {
-        let ctx = make_test_context(
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-        );
+        let ctx = make_test_context([0u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
         let inputs = [1u8, 2, 3];
 
         let output = noop_agent(&ctx, &inputs);
@@ -262,12 +247,7 @@ mod tests {
 
     #[test]
     fn test_multi_echo_agent() {
-        let ctx = make_test_context(
-            [0x42u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-        );
+        let ctx = make_test_context([0x42u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
         let inputs = [1u8, 2, 3, 4, 5];
 
         let output = multi_echo_agent(&ctx, &inputs);
@@ -281,12 +261,7 @@ mod tests {
 
     #[test]
     fn test_trading_agent_valid_input() {
-        let ctx = make_test_context(
-            [0x11u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-        );
+        let ctx = make_test_context([0x11u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
 
         // Build input: asset_id (32) + notional (8) + direction (1)
         let mut inputs = Vec::with_capacity(41);
@@ -302,12 +277,7 @@ mod tests {
 
     #[test]
     fn test_trading_agent_invalid_input() {
-        let ctx = make_test_context(
-            [0x11u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-            [0u8; 32],
-        );
+        let ctx = make_test_context([0x11u8; 32], [0u8; 32], [0u8; 32], [0u8; 32]);
         let inputs = [1u8, 2, 3]; // Too short
 
         let output = trading_agent(&ctx, &inputs);
