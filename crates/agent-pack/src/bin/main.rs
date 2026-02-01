@@ -3,8 +3,8 @@
 #[cfg(feature = "onchain")]
 use agent_pack::onchain::{verify_onchain_with_timeout, OnchainError, OnchainVerifyResult};
 use agent_pack::{
-    format_hex, pack_bundle, sha256_file, validate_hex_32, verify_manifest_structure,
-    verify_manifest_with_files, AgentPackManifest, PackOptions,
+    format_hex, pack_bundle, scaffold, sha256_file, validate_hex_32, verify_manifest_structure,
+    verify_manifest_with_files, AgentPackManifest, PackOptions, ScaffoldOptions, TemplateType,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -116,6 +116,31 @@ enum Commands {
         #[arg(long, default_value = "30000")]
         timeout_ms: u64,
     },
+
+    /// Generate a new agent project from template
+    Scaffold {
+        /// Agent project name (e.g., "my-yield-agent")
+        name: String,
+
+        /// Pre-set agent ID (64-character hex string with 0x prefix)
+        #[arg(
+            long,
+            default_value = "0x0000000000000000000000000000000000000000000000000000000000000000"
+        )]
+        agent_id: String,
+
+        /// Output directory (defaults to ./<name>)
+        #[arg(long, short)]
+        out: Option<PathBuf>,
+
+        /// Template type: minimal | yield
+        #[arg(long, default_value = "minimal")]
+        template: String,
+
+        /// Skip git init
+        #[arg(long)]
+        no_git: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -153,6 +178,13 @@ fn main() -> ExitCode {
             verifier,
             timeout_ms,
         } => cmd_verify_onchain(manifest, rpc, verifier, timeout_ms),
+        Commands::Scaffold {
+            name,
+            agent_id,
+            out,
+            template,
+            no_git,
+        } => cmd_scaffold(name, agent_id, out, template, no_git),
     }
 }
 
@@ -405,6 +437,100 @@ fn cmd_pack(
             ExitCode::FAILURE
         }
     }
+}
+
+fn cmd_scaffold(
+    name: String,
+    agent_id: String,
+    out: Option<PathBuf>,
+    template: String,
+    no_git: bool,
+) -> ExitCode {
+    // Validate agent_id format
+    let agent_id_bytes = match parse_agent_id(&agent_id) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            eprintln!("Error: invalid agent_id: {}", e);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // Parse template type
+    let template_type = match TemplateType::parse(&template) {
+        Some(t) => t,
+        None => {
+            eprintln!(
+                "Error: invalid template '{}' - must be 'minimal' or 'yield'",
+                template
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+
+    // Determine output directory
+    let output_dir = out.unwrap_or_else(|| PathBuf::from(&name));
+
+    // Build options
+    let options = ScaffoldOptions {
+        name: name.clone(),
+        agent_id: agent_id_bytes,
+        output_dir: output_dir.clone(),
+        template: template_type,
+        init_git: !no_git,
+    };
+
+    // Run scaffold
+    match scaffold(&options) {
+        Ok(result) => {
+            println!("✓ Created {}/", result.project_dir.display());
+            println!(
+                "✓ Generated agent crate ({}/agent/)",
+                result.project_dir.display()
+            );
+            println!(
+                "✓ Generated wrapper crate ({}/wrapper/)",
+                result.project_dir.display()
+            );
+            println!(
+                "✓ Generated test crate ({}/tests/)",
+                result.project_dir.display()
+            );
+            println!(
+                "✓ Generated manifest ({}/dist/agent-pack.json)",
+                result.project_dir.display()
+            );
+            if result.git_initialized {
+                println!("✓ Initialized git repository");
+            }
+            println!();
+            println!("Next steps:");
+            println!("  cd {}", result.project_dir.display());
+            println!("  cargo build                    # Build and compute AGENT_CODE_HASH");
+            println!("  cargo test                     # Run unit tests");
+            println!("  agent-pack compute --elf ...   # Compute hashes after zkVM build");
+
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Parse agent ID from hex string to bytes.
+fn parse_agent_id(s: &str) -> Result<[u8; 32], String> {
+    let s = s.strip_prefix("0x").unwrap_or(s);
+
+    if s.len() != 64 {
+        return Err(format!("expected 64 hex characters, got {}", s.len()));
+    }
+
+    let bytes = hex::decode(s).map_err(|e| format!("invalid hex: {}", e))?;
+
+    bytes
+        .try_into()
+        .map_err(|_| "expected exactly 32 bytes".to_string())
 }
 
 /// Simple semver validation (same as in verify.rs)
