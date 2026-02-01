@@ -4,7 +4,10 @@ pragma solidity ^0.8.20;
 import { Script, console } from "forge-std/Script.sol";
 import { KernelExecutionVerifier } from "../src/KernelExecutionVerifier.sol";
 
-contract TestVerifyAndParse is Script {
+/// @title TestVerifyAndParseWithImageId
+/// @notice Test script for verifying proofs using verifyAndParseWithImageId
+/// @dev Uses the permissionless verification flow where caller provides imageId
+contract TestVerifyAndParseWithImageId is Script {
     // Deployed contract address on Sepolia
     address constant VERIFIER_ADDRESS = 0x9Ef5bAB590AFdE8036D57b89ccD2947D4E3b1EFA;
 
@@ -23,7 +26,7 @@ contract TestVerifyAndParse is Script {
         bytes memory journal =
             hex"01000000010000004242424242424242424242424242424242424242424242424242424242424242943395a6221a2b9c6f62bac3a07f1fb05980f48e00f8b6bdb5eb738ac98499eebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc01000000000000008b9f6c2e7972d334d9347953b2ad91c5283a5dc9f68e5f1309f1e012ece73334a4b1f22de8149ff8156f11d5aa0585e03844cc76b1d52f5e11b420312d64037101";
 
-        console.log("=== Test verifyAndParse ===");
+        console.log("=== Test verifyAndParseWithImageId ===");
         console.log("Verifier address:", VERIFIER_ADDRESS);
         console.log("Image ID:");
         console.logBytes32(IMAGE_ID);
@@ -32,23 +35,11 @@ contract TestVerifyAndParse is Script {
         console.log("Journal length:", journal.length);
         console.log("Seal length:", seal.length);
 
-        // Check if agent is already registered
-        bytes32 registeredImageId = verifier.agentImageIds(AGENT_ID);
-        console.log("\nRegistered image ID for agent:");
-        console.logBytes32(registeredImageId);
+        // Call verifyAndParseWithImageId (view function, no broadcast needed)
+        // In the permissionless model, the caller provides the imageId directly
+        console.log("\nCalling verifyAndParseWithImageId with caller-provided imageId...");
 
-        if (registeredImageId == bytes32(0)) {
-            console.log("\nAgent not registered. Run RegisterAgent script first.");
-            console.log(
-                "Command: forge script script/TestVerifyAndParse.s.sol:RegisterAgent --rpc-url $RPC_URL --broadcast"
-            );
-            return;
-        }
-
-        // Call verifyAndParse (view function, no broadcast needed)
-        console.log("\nCalling verifyAndParse...");
-
-        try verifier.verifyAndParse(journal, seal) returns (
+        try verifier.verifyAndParseWithImageId(IMAGE_ID, journal, seal) returns (
             KernelExecutionVerifier.ParsedJournal memory parsed
         ) {
             console.log("\n=== Verification SUCCESS ===");
@@ -72,33 +63,5 @@ contract TestVerifyAndParse is Script {
             console.log("\n=== Verification FAILED (low-level) ===");
             console.logBytes(lowLevelData);
         }
-    }
-}
-
-contract RegisterAgent is Script {
-    address constant VERIFIER_ADDRESS = 0x9Ef5bAB590AFdE8036D57b89ccD2947D4E3b1EFA;
-    bytes32 constant IMAGE_ID = 0xb326f06dbfc60f5e72d2d7cddf94f7991cff99dfd67f69357713bb9f49c3d195;
-    bytes32 constant AGENT_ID = 0x4242424242424242424242424242424242424242424242424242424242424242;
-
-    function run() external {
-        KernelExecutionVerifier verifier = KernelExecutionVerifier(VERIFIER_ADDRESS);
-
-        console.log("=== Register Agent ===");
-        console.log("Verifier:", VERIFIER_ADDRESS);
-        console.log("Agent ID:");
-        console.logBytes32(AGENT_ID);
-        console.log("Image ID:");
-        console.logBytes32(IMAGE_ID);
-
-        vm.startBroadcast();
-
-        verifier.registerAgent(AGENT_ID, IMAGE_ID);
-
-        vm.stopBroadcast();
-
-        console.log("\nAgent registered successfully!");
-        console.log(
-            "Now run: forge script script/TestVerifyAndParse.s.sol:TestVerifyAndParse --rpc-url $RPC_URL"
-        );
     }
 }

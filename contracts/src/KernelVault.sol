@@ -43,6 +43,11 @@ contract KernelVault is ReentrancyGuard {
     /// @notice The agent ID this vault is bound to
     bytes32 public immutable agentId;
 
+    /// @notice The trusted imageId pinned at vault deployment (immutable)
+    /// @dev This is read from AgentRegistry at deployment time and never changes.
+    ///      Registry updates do NOT affect this vault's imageId.
+    bytes32 public immutable trustedImageId;
+
     // ============ State ============
 
     /// @notice Total shares outstanding
@@ -146,16 +151,22 @@ contract KernelVault is ReentrancyGuard {
     /// @notice Wrong deposit function called for this vault type
     error WrongDepositFunction();
 
+    /// @notice Invalid trusted image ID (zero)
+    error InvalidTrustedImageId();
+
     // ============ Constructor ============
 
     /// @notice Initialize the vault
     /// @param _asset The ERC20 asset this vault holds
     /// @param _verifier The KernelExecutionVerifier contract address
     /// @param _agentId The agent ID this vault is bound to
-    constructor(address _asset, address _verifier, bytes32 _agentId) {
+    /// @param _trustedImageId The trusted RISC Zero image ID (pinned at deployment)
+    constructor(address _asset, address _verifier, bytes32 _agentId, bytes32 _trustedImageId) {
+        if (_trustedImageId == bytes32(0)) revert InvalidTrustedImageId();
         asset = IERC20(_asset);
         verifier = IKernelExecutionVerifier(_verifier);
         agentId = _agentId;
+        trustedImageId = _trustedImageId;
     }
 
     // ============ Deposit/Withdraw ============
@@ -273,9 +284,9 @@ contract KernelVault is ReentrancyGuard {
         external
         nonReentrant
     {
-        // 1. Verify proof and parse journal
+        // 1. Verify proof and parse journal using pinned trustedImageId
         IKernelExecutionVerifier.ParsedJournal memory parsed =
-            verifier.verifyAndParse(journal, seal);
+            verifier.verifyAndParseWithImageId(trustedImageId, journal, seal);
 
         // 2. Verify agent ID matches
         if (parsed.agentId != agentId) {

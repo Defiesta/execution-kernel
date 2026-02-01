@@ -37,14 +37,11 @@ contract KernelVaultTest is Test {
         // Deploy KernelExecutionVerifier with mock
         executionVerifier = new KernelExecutionVerifier(address(mockRiscZeroVerifier));
 
-        // Register agent with image ID
-        executionVerifier.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-
         // Deploy mock ERC20 token
         token = new MockERC20("Test Token", "TEST", 18);
 
-        // Deploy KernelVault
-        vault = new KernelVault(address(token), address(executionVerifier), TEST_AGENT_ID);
+        // Deploy KernelVault with trustedImageId
+        vault = new KernelVault(address(token), address(executionVerifier), TEST_AGENT_ID, TEST_IMAGE_ID);
 
         // Mint tokens to user
         token.mint(user, INITIAL_BALANCE);
@@ -420,10 +417,11 @@ contract KernelVaultTest is Test {
         bytes memory journal = _buildJournal(wrongAgentId, nonce, actionCommitment);
         bytes memory seal = hex"deadbeef";
 
-        // This will fail at the verifier level because the agent is not registered
+        // With verifyAndParseWithImageId, the vault checks agentId match after parsing
+        // The verifier no longer checks agent registration - it uses the caller-provided imageId
         vm.expectRevert(
             abi.encodeWithSelector(
-                KernelExecutionVerifier.AgentNotRegistered.selector, wrongAgentId
+                KernelVault.AgentIdMismatch.selector, TEST_AGENT_ID, wrongAgentId
             )
         );
         vault.execute(journal, seal, agentOutputBytes);
@@ -490,6 +488,39 @@ contract KernelVaultTest is Test {
         assertEq(vault.ACTION_TYPE_CALL(), 0x00000002);
         assertEq(vault.ACTION_TYPE_TRANSFER_ERC20(), 0x00000003);
         assertEq(vault.agentId(), TEST_AGENT_ID);
+        assertEq(vault.trustedImageId(), TEST_IMAGE_ID);
+    }
+
+    function test_constructor_zeroImageId_reverts() public {
+        vm.expectRevert(KernelVault.InvalidTrustedImageId.selector);
+        new KernelVault(address(token), address(executionVerifier), TEST_AGENT_ID, bytes32(0));
+    }
+
+    function test_execute_usesVerifyAndParseWithImageId() public {
+        // This test verifies that execute() uses verifyAndParseWithImageId with the pinned trustedImageId
+        // We can verify this by checking that execution works correctly when the vault is configured
+        // with a trustedImageId that matches the mock verifier's expectations
+
+        // Setup: deposit tokens to vault
+        vm.prank(user);
+        vault.depositERC20Tokens(DEPOSIT_AMOUNT);
+
+        uint256 transferAmount = 10 ether;
+        bytes memory agentOutputBytes =
+            _buildTransferAction(address(token), recipient, transferAmount);
+        bytes32 actionCommitment = sha256(agentOutputBytes);
+        uint64 nonce = 1;
+        bytes memory journal = _buildJournal(TEST_AGENT_ID, nonce, actionCommitment);
+        bytes memory seal = hex"deadbeef";
+
+        uint256 recipientBalanceBefore = token.balanceOf(recipient);
+
+        // Execute - this will use verifyAndParseWithImageId internally
+        vault.execute(journal, seal, agentOutputBytes);
+
+        // Verify transfer occurred
+        assertEq(token.balanceOf(recipient), recipientBalanceBefore + transferAmount);
+        assertEq(vault.lastExecutionNonce(), nonce);
     }
 
     // ============ PPS Accounting Tests ============
