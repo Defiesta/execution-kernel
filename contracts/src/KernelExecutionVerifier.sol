@@ -9,7 +9,6 @@ import { IRiscZeroVerifier } from "./interfaces/IRiscZeroVerifier.sol";
 ///      1. Verifies RISC Zero proofs using an external verifier
 ///      2. Parses and validates the KernelJournalV1 binary format (209 bytes)
 ///      3. Enforces protocol invariants (version checks, execution status)
-///      4. Emits events for verified executions
 contract KernelExecutionVerifier {
     // ============ Constants ============
 
@@ -27,26 +26,8 @@ contract KernelExecutionVerifier {
 
     // ============ State ============
 
-    /// @notice Contract owner (can manage allowed image IDs)
-    address public owner;
-
     /// @notice RISC Zero verifier contract
     IRiscZeroVerifier public immutable verifier;
-
-    /// @notice Mapping of allowed zkVM image IDs
-    mapping(bytes32 => bool) public allowedImageIds;
-    /// @notice Mapping of agent IDs to their corresponding image IDs
-    mapping(bytes32 => bytes32) public agentImageIds;
-
-    // ============ Events ============
-
-    /// @notice Emitted when a new image ID is registered
-    /// @param imageId The registered zkVM image ID
-    event AgentRegistered(bytes32 indexed agentId, bytes32 indexed imageId);
-
-    /// @notice Emitted when an image ID is revoked
-    /// @param imageId The revoked zkVM image ID
-    event ImageIdRevoked(bytes32 indexed imageId);
 
     // ============ Errors ============
 
@@ -62,20 +43,8 @@ contract KernelExecutionVerifier {
     /// @notice Execution status indicates failure
     error ExecutionFailed(uint8 status);
 
-    /// @notice Provided image ID is not in the allow list
-    error ImageIdNotAllowed(bytes32 imageId);
-
-    /// @notice Provided agent ID is invalid (zero)
-    error InvalidImageId(bytes32 imageId);
-
-    /// @notice Provided agent ID is invalid (zero)
-    error InvalidAgentId();
-
-    /// @notice Provided agent ID is invalid (zero)
-    error AgentNotRegistered(bytes32 agentId);
-
-    /// @notice Caller is not the contract owner
-    error OnlyOwner();
+    /// @notice Zero imageId provided to verifyAndParseWithImageId
+    error ZeroImageId();
 
     // ============ Structs ============
 
@@ -90,71 +59,36 @@ contract KernelExecutionVerifier {
         bytes32 actionCommitment;
     }
 
-    // ============ Modifiers ============
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert OnlyOwner();
-        _;
-    }
-
     // ============ Constructor ============
 
     /// @notice Initialize the verifier with a RISC Zero verifier address
     /// @param _verifier Address of the RISC Zero verifier contract
     constructor(address _verifier) {
-        owner = msg.sender;
         verifier = IRiscZeroVerifier(_verifier);
-    }
-
-    // ============ Admin Functions ============
-
-    /// @notice Register an allowed zkVM image ID
-    /// @param imageId The image ID to allow
-    /// @param agentId The agent ID associated with this image ID
-    function registerAgent(bytes32 agentId, bytes32 imageId) external onlyOwner {
-        if (agentId == bytes32(0)) revert InvalidAgentId();
-        if (imageId == bytes32(0)) revert InvalidImageId(imageId);
-        allowedImageIds[imageId] = true;
-        agentImageIds[agentId] = imageId;
-        emit AgentRegistered(agentId, imageId);
-    }
-
-    /// @notice Revoke an allowed zkVM image ID
-    /// @param imageId The image ID to revoke
-    function revokeImageId(bytes32 imageId) external onlyOwner {
-        allowedImageIds[imageId] = false;
-        emit ImageIdRevoked(imageId);
-    }
-
-    /// @notice Transfer ownership to a new address
-    /// @param newOwner The new owner address
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "New owner cannot be zero address");
-        owner = newOwner;
     }
 
     // ============ Core Verification ============
 
-    /// @notice Verify a RISC Zero proof and parse the KernelJournalV1
+    /// @notice Verify a RISC Zero proof with a caller-provided imageId and parse the KernelJournalV1
+    /// @dev The vault provides its pinned trustedImageId, enabling permissionless verification.
+    /// @param expectedImageId The imageId to verify the proof against (pinned at vault deployment)
     /// @param journal The raw journal bytes (209 bytes expected)
     /// @param seal The RISC Zero proof seal
     /// @return parsed The parsed and validated journal fields
-    function verifyAndParse(bytes calldata journal, bytes calldata seal)
-        external
-        view
-        returns (ParsedJournal memory parsed)
-    {
-        // 1. Parse journal
+    function verifyAndParseWithImageId(
+        bytes32 expectedImageId,
+        bytes calldata journal,
+        bytes calldata seal
+    ) external view returns (ParsedJournal memory parsed) {
+        // Validate expectedImageId is not zero
+        if (expectedImageId == bytes32(0)) revert ZeroImageId();
+
+        // Parse journal
         parsed = _parseJournal(journal);
 
-        bytes32 imageId = agentImageIds[parsed.agentId];
-        // 2. Check imageId is registered
-        if (imageId == bytes32(0)) revert AgentNotRegistered(parsed.agentId);
-        // 3. Check imageId is allowed
-        if (!allowedImageIds[imageId]) revert ImageIdNotAllowed(imageId);
-        // 4. Compute journal digest and verify proof via RISC Zero verifier
+        // Compute journal digest and verify proof via RISC Zero verifier
         bytes32 journalDigest = sha256(journal);
-        verifier.verify(seal, imageId, journalDigest);
+        verifier.verify(seal, expectedImageId, journalDigest);
 
         return parsed;
     }

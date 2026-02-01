@@ -15,22 +15,20 @@ interface IKernelExecutionVerifier {
         bytes32 actionCommitment;
     }
 
-    /// @notice Verify a RISC Zero proof and parse the KernelJournalV1
+    /// @notice Verify a RISC Zero proof with a caller-provided imageId and parse the KernelJournalV1
+    /// @dev The vault provides its pinned trustedImageId, enabling permissionless verification.
+    /// @param expectedImageId The imageId to verify the proof against (pinned at vault deployment)
     /// @param journal The raw journal bytes (209 bytes expected)
     /// @param seal The RISC Zero proof seal
     /// @return parsed The parsed and validated journal fields
-    function verifyAndParse(bytes calldata journal, bytes calldata seal)
-        external
-        returns (ParsedJournal memory parsed);
+    function verifyAndParseWithImageId(
+        bytes32 expectedImageId,
+        bytes calldata journal,
+        bytes calldata seal
+    ) external view returns (ParsedJournal memory parsed);
 
     /// @notice Parse journal without proof verification (for testing/viewing)
     /// @param journal The raw journal bytes
     /// @return parsed The parsed journal fields
     function parseJournal(bytes calldata journal) external pure returns (ParsedJournal memory);
-
-    /// @notice Check if an image ID is allowed
-    function allowedImageIds(bytes32 imageId) external view returns (bool);
-
-    /// @notice Get the image ID for an agent
-    function agentImageIds(bytes32 agentId) external view returns (bytes32);
 }

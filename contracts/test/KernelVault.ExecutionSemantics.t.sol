@@ -23,6 +23,7 @@ contract KernelVaultExecutionSemanticsTest is Test {
     address public recipient = address(0x2222222222222222222222222222222222222222);
 
     bytes32 public constant AGENT_ID = bytes32(uint256(0xA6E17));
+    bytes32 public constant IMAGE_ID = bytes32(uint256(0x1234));
     bytes32 public constant AGENT_CODE_HASH = bytes32(uint256(0xC0DE));
     bytes32 public constant CONSTRAINT_SET_HASH = bytes32(uint256(0xC0175A1));
     bytes32 public constant INPUT_ROOT = bytes32(uint256(0x1200700));
@@ -53,8 +54,8 @@ contract KernelVaultExecutionSemanticsTest is Test {
         // Deploy mock ERC20 token
         token = new MockERC20("Test Token", "TEST", 18);
 
-        // Deploy KernelVault with mock verifier
-        vault = new KernelVault(address(token), address(mockVerifier), AGENT_ID);
+        // Deploy KernelVault with mock verifier and trustedImageId
+        vault = new KernelVault(address(token), address(mockVerifier), AGENT_ID, IMAGE_ID);
 
         // Deploy mock call target
         callTarget = new MockCallTarget();

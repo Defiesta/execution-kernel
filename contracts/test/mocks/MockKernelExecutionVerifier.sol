@@ -9,26 +9,34 @@ import { IKernelExecutionVerifier } from "../../src/interfaces/IKernelExecutionV
 contract MockKernelExecutionVerifier is IKernelExecutionVerifier {
     // ============ Configuration State ============
 
-    /// @notice Pre-configured journal to return from verifyAndParse
+    /// @notice Pre-configured journal to return
     ParsedJournal public configuredJournal;
 
-    /// @notice Whether verifyAndParse should revert
+    /// @notice Whether verification should revert
     bool public shouldRevert;
 
     /// @notice Custom revert message
     string public revertMessage;
 
-    /// @notice Track the last call parameters for assertions
-    bytes public lastJournal;
-    bytes public lastSeal;
+    /// @notice Expected imageId for verifyAndParseWithImageId (if set, will validate)
+    bytes32 public expectedImageId;
+
+    /// @notice Whether to validate imageId in verifyAndParseWithImageId
+    bool public validateImageId;
 
     // ============ Errors ============
 
     error MockRevert(string message);
 
+    /// @notice ImageId mismatch error for testing
+    error ImageIdMismatch(bytes32 expected, bytes32 actual);
+
+    /// @notice Zero imageId error for testing
+    error ZeroImageId();
+
     // ============ Configuration Functions ============
 
-    /// @notice Configure the journal to return from verifyAndParse
+    /// @notice Configure the journal to return
     function setJournal(
         bytes32 agentId,
         bytes32 agentCodeHash,
@@ -58,7 +66,7 @@ contract MockKernelExecutionVerifier is IKernelExecutionVerifier {
         configuredJournal.actionCommitment = actionCommitment;
     }
 
-    /// @notice Set whether to revert on verifyAndParse
+    /// @notice Set whether to revert on verification
     function setShouldRevert(bool _shouldRevert, string calldata _message) external {
         shouldRevert = _shouldRevert;
         revertMessage = _message;
@@ -79,29 +87,43 @@ contract MockKernelExecutionVerifier is IKernelExecutionVerifier {
         configuredJournal.agentId = _agentId;
     }
 
+    /// @notice Configure expected imageId for verifyAndParseWithImageId validation
+    /// @param _expectedImageId The imageId that must be provided
+    /// @param _validate Whether to validate the imageId (revert on mismatch)
+    function setExpectedImageId(bytes32 _expectedImageId, bool _validate) external {
+        expectedImageId = _expectedImageId;
+        validateImageId = _validate;
+    }
+
     // ============ IKernelExecutionVerifier Implementation ============
 
+    /// @notice Verify with caller-provided imageId (permissionless flow)
     /// @inheritdoc IKernelExecutionVerifier
-    function verifyAndParse(bytes calldata journal, bytes calldata seal)
-        external
-        override
-        returns (ParsedJournal memory)
-    {
-        // Record call parameters for test assertions
-        lastJournal = journal;
-        lastSeal = seal;
-
+    function verifyAndParseWithImageId(
+        bytes32 _expectedImageId,
+        bytes calldata,
+        bytes calldata
+    ) external view override returns (ParsedJournal memory) {
         if (shouldRevert) {
             revert MockRevert(revertMessage);
+        }
+
+        // Validate imageId is not zero
+        if (_expectedImageId == bytes32(0)) {
+            revert ZeroImageId();
+        }
+
+        // Optionally validate imageId matches expected
+        if (validateImageId && _expectedImageId != expectedImageId) {
+            revert ImageIdMismatch(expectedImageId, _expectedImageId);
         }
 
         return configuredJournal;
     }
 
     /// @inheritdoc IKernelExecutionVerifier
-    /// @dev Returns empty journal for mock - use verifyAndParse for configured values
+    /// @dev Returns empty journal for mock - pure function can't access storage
     function parseJournal(bytes calldata) external pure override returns (ParsedJournal memory) {
-        // Return empty/default journal since we can't access storage in pure function
         return ParsedJournal({
             agentId: bytes32(0),
             agentCodeHash: bytes32(0),
@@ -111,15 +133,5 @@ contract MockKernelExecutionVerifier is IKernelExecutionVerifier {
             inputCommitment: bytes32(0),
             actionCommitment: bytes32(0)
         });
-    }
-
-    /// @inheritdoc IKernelExecutionVerifier
-    function allowedImageIds(bytes32) external pure override returns (bool) {
-        return true; // Always allowed in mock
-    }
-
-    /// @inheritdoc IKernelExecutionVerifier
-    function agentImageIds(bytes32) external pure override returns (bytes32) {
-        return bytes32(uint256(1)); // Return non-zero to indicate registered
     }
 }

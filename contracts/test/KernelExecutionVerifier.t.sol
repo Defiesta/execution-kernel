@@ -11,9 +11,6 @@ contract KernelExecutionVerifierTest is Test {
     KernelExecutionVerifier public verifierContract;
     MockVerifier public mockVerifier;
 
-    address public owner = address(this);
-    address public nonOwner = address(0xBEEF);
-
     bytes32 public constant TEST_IMAGE_ID = bytes32(uint256(0x1234));
     bytes32 public constant TEST_AGENT_ID = bytes32(uint256(0xA6E17));
     bytes32 public constant TEST_CODE_HASH = bytes32(uint256(0xC0DE));
@@ -239,130 +236,54 @@ contract KernelExecutionVerifierTest is Test {
         assertEq(parsed.executionNonce, 0x0102030405060708);
     }
 
-    // ============ Image ID Management Tests ============
+    // ============ verifyAndParseWithImageId Tests ============
 
-    function test_registerAgent_onlyOwner() public {
-        // registerAgent(agentId, imageId)
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-        assertTrue(verifierContract.allowedImageIds(TEST_IMAGE_ID));
-        assertEq(verifierContract.agentImageIds(TEST_AGENT_ID), TEST_IMAGE_ID);
-    }
-
-    function test_registerAgent_emitsEvent() public {
-        vm.expectEmit(true, true, false, false);
-        emit KernelExecutionVerifier.AgentRegistered(TEST_AGENT_ID, TEST_IMAGE_ID);
-
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-    }
-
-    function test_registerAgent_nonOwner_reverts() public {
-        vm.prank(nonOwner);
-        vm.expectRevert(KernelExecutionVerifier.OnlyOwner.selector);
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-    }
-
-    function test_revokeImageId_onlyOwner() public {
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-        assertTrue(verifierContract.allowedImageIds(TEST_IMAGE_ID));
-
-        verifierContract.revokeImageId(TEST_IMAGE_ID);
-        assertFalse(verifierContract.allowedImageIds(TEST_IMAGE_ID));
-    }
-
-    function test_revokeImageId_emitsEvent() public {
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-
-        vm.expectEmit(true, false, false, false);
-        emit KernelExecutionVerifier.ImageIdRevoked(TEST_IMAGE_ID);
-
-        verifierContract.revokeImageId(TEST_IMAGE_ID);
-    }
-
-    function test_revokeImageId_nonOwner_reverts() public {
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-
-        vm.prank(nonOwner);
-        vm.expectRevert(KernelExecutionVerifier.OnlyOwner.selector);
-        verifierContract.revokeImageId(TEST_IMAGE_ID);
-    }
-
-    // ============ Ownership Tests ============
-
-    function test_transferOwnership() public {
-        verifierContract.transferOwnership(nonOwner);
-        assertEq(verifierContract.owner(), nonOwner);
-
-        // Old owner can no longer register
-        vm.expectRevert(KernelExecutionVerifier.OnlyOwner.selector);
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-
-        // New owner can register
-        vm.prank(nonOwner);
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-        assertTrue(verifierContract.allowedImageIds(TEST_IMAGE_ID));
-    }
-
-    // ============ Verify and Parse Tests ============
-
-    function test_verifyAndParse_unregisteredAgent_reverts() public {
-        bytes memory journal = _buildValidJournal();
-        bytes memory seal = hex"deadbeef";
-
-        // Agent not registered - should revert with AgentNotRegistered
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                KernelExecutionVerifier.AgentNotRegistered.selector, TEST_AGENT_ID
-            )
-        );
-        verifierContract.verifyAndParse(journal, seal);
-    }
-
-    function test_verifyAndParse_success() public {
-        // Register agent with image ID
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-
+    function test_verifyAndParseWithImageId_success() public view {
         bytes memory journal = _buildValidJournal();
         bytes memory seal = hex"deadbeef";
 
         KernelExecutionVerifier.ParsedJournal memory parsed =
-            verifierContract.verifyAndParse(journal, seal);
+            verifierContract.verifyAndParseWithImageId(TEST_IMAGE_ID, journal, seal);
 
         assertEq(parsed.agentId, TEST_AGENT_ID);
         assertEq(parsed.agentCodeHash, TEST_CODE_HASH);
         assertEq(parsed.executionNonce, TEST_NONCE);
     }
 
-    function test_verifyAndParse_verifierReverts() public {
+    function test_verifyAndParseWithImageId_zeroImageId_reverts() public {
+        bytes memory journal = _buildValidJournal();
+        bytes memory seal = hex"deadbeef";
+
+        vm.expectRevert(KernelExecutionVerifier.ZeroImageId.selector);
+        verifierContract.verifyAndParseWithImageId(bytes32(0), journal, seal);
+    }
+
+    function test_verifyAndParseWithImageId_verifierReverts() public {
         // Deploy with reverting verifier
         RevertingVerifier revertingVerifier = new RevertingVerifier();
         KernelExecutionVerifier contractWithRevertingVerifier =
             new KernelExecutionVerifier(address(revertingVerifier));
 
-        contractWithRevertingVerifier.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-
         bytes memory journal = _buildValidJournal();
         bytes memory seal = hex"deadbeef";
 
         vm.expectRevert(RevertingVerifier.AlwaysReverts.selector);
-        contractWithRevertingVerifier.verifyAndParse(journal, seal);
+        contractWithRevertingVerifier.verifyAndParseWithImageId(TEST_IMAGE_ID, journal, seal);
     }
 
-    function test_verifyAndParse_mockVerifierFails() public {
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
+    function test_verifyAndParseWithImageId_mockVerifierFails() public {
         mockVerifier.setShouldFail(true);
 
         bytes memory journal = _buildValidJournal();
         bytes memory seal = hex"deadbeef";
 
         vm.expectRevert(MockVerifier.MockVerificationFailed.selector);
-        verifierContract.verifyAndParse(journal, seal);
+        verifierContract.verifyAndParseWithImageId(TEST_IMAGE_ID, journal, seal);
     }
 
     // ============ Journal Digest Tests ============
 
-    function test_verifyAndParse_computesCorrectJournalDigest() public {
-        verifierContract.registerAgent(TEST_AGENT_ID, TEST_IMAGE_ID);
-
+    function test_verifyAndParseWithImageId_computesCorrectJournalDigest() public view {
         bytes memory journal = _buildValidJournal();
         bytes memory seal = hex"deadbeef";
 
@@ -371,7 +292,7 @@ contract KernelExecutionVerifierTest is Test {
 
         // The mock verifier doesn't validate, but we can verify the contract
         // computes sha256(journal) correctly by checking the journal parses
-        verifierContract.verifyAndParse(journal, seal);
+        verifierContract.verifyAndParseWithImageId(TEST_IMAGE_ID, journal, seal);
 
         // Verify the journal digest computation matches
         assertEq(sha256(journal), expectedDigest);
