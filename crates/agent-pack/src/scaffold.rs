@@ -861,7 +861,6 @@ mod tests {
 }
 
 fn generate_wrapper_cargo_toml(name: &str) -> String {
-    let name_snake = to_snake_case(name);
     format!(
         r#"[package]
 name = "{name}-wrapper"
@@ -878,14 +877,13 @@ kernel-guest = {{ git = "https://github.com/Defiesta/execution-kernel", branch =
 kernel-sdk = {{ git = "https://github.com/Defiesta/execution-kernel", branch = "main" }}
 kernel-core = {{ git = "https://github.com/Defiesta/execution-kernel", branch = "main", default-features = false }}
 constraints = {{ git = "https://github.com/Defiesta/execution-kernel", branch = "main" }}
-{name_snake} = {{ path = "../agent" }}
+{name} = {{ path = "../agent" }}
 
 [features]
 default = []
 risc0 = ["kernel-guest/risc0"]
 "#,
-        name = name,
-        name_snake = name_snake
+        name = name
     )
 }
 
@@ -959,7 +957,6 @@ pub use kernel_guest::KernelError;
 }
 
 fn generate_tests_cargo_toml(name: &str) -> String {
-    let name_snake = to_snake_case(name);
     format!(
         r#"[package]
 name = "{name}-tests"
@@ -973,13 +970,12 @@ crate-type = ["rlib"]
 
 [dependencies]
 kernel-sdk = {{ git = "https://github.com/Defiesta/execution-kernel", branch = "main" }}
-{name_snake} = {{ path = "../agent" }}
+{name} = {{ path = "../agent" }}
 
 [dev-dependencies]
 # Add test dependencies here
 "#,
-        name = name,
-        name_snake = name_snake
+        name = name
     )
 }
 
